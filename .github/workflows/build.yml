@@ -1,0 +1,145 @@
+name: Build & Package Slim4K (Android & Windows)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ==========================================
+  # 1. ANDROID RELEASE BUILD (APK)
+  # ==========================================
+  build-android:
+    name: Build Android Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter & Environment
+        run: flutter doctor -v
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run automated tests
+        run: flutter test
+
+      - name: Build Android Release APK
+        run: flutter build apk --release
+
+      - name: Prepare Android Artifact
+        run: |
+          mkdir -p output
+          cp build/app/outputs/flutter-apk/app-release.apk output/Slim4K-Android.apk
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slim4K-Android-APK
+          path: output/Slim4K-Android.apk
+          if-no-files-found: error
+
+  # ==========================================
+  # 2. WINDOWS RELEASE BUILD (EXE & INSTALLER)
+  # ==========================================
+  build-windows:
+    name: Build Windows Executable & Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows Desktop Support
+        run: flutter config --enable-windows-desktop
+
+      - name: Verify Flutter & Environment
+        run: flutter doctor -v
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows Release
+        run: flutter build windows --release
+
+      - name: Create Portable Zip (Executable + Companion DLLs)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path output
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath output\Slim4K-Windows-Portable.zip
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Compile Inno Setup Installer (.exe Wizard)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Ooutput windows\installer\slim4k_setup.iss
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slim4K-Windows-Release
+          path: |
+            output/Slim4K-Windows-Setup.exe
+            output/Slim4K-Windows-Portable.zip
+          if-no-files-found: error
+
+  # ==========================================
+  # 3. GITHUB RELEASE (AUTOMATIC WHEN TAGGED)
+  # ==========================================
+  release:
+    name: Create GitHub Release
+    needs: [build-android, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Slim4K-Android-APK
+          path: release_assets
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: Slim4K-Windows-Release
+          path: release_assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
