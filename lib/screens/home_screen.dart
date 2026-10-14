@@ -197,11 +197,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       // Determine target output path
-      String? customTarget;
-      if (_projectScanResult != null && task.relativeSubPath != null) {
+      String? customTarget = task.customOutputPath;
+      if (customTarget == null && _projectScanResult != null && task.relativeSubPath != null) {
         final ext = p.extension(task.inputPath);
         final baseWithoutExt = p.withoutExtension(task.relativeSubPath!);
-        customTarget = p.join(_projectScanResult!.targetDir, '$baseWithoutExt$ext');
+        customTarget = p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
       }
 
       final outPath = await _engine.compressVideo(
@@ -356,6 +356,81 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  Future<void> _saveAsFile(VideoTask task) async {
+    final sourcePath = task.outputPath;
+    if (sourcePath == null || !File(sourcePath).existsSync()) return;
+
+    final baseName = p.basenameWithoutExtension(task.inputPath);
+    final ext = p.extension(sourcePath).isNotEmpty ? p.extension(sourcePath) : '.mp4';
+    final suggestedName = '${baseName}_slim$ext';
+
+    final targetDir = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select Folder to Save $suggestedName',
+    );
+
+    if (targetDir != null && mounted) {
+      final destinationPath = p.join(targetDir, suggestedName);
+      if (destinationPath != sourcePath) {
+        await File(sourcePath).copy(destinationPath);
+        setState(() {
+          task.outputPath = destinationPath;
+        });
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved to: $destinationPath'),
+            backgroundColor: const Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _chooseCustomOutputDestination(VideoTask task) async {
+    final baseName = p.basenameWithoutExtension(task.inputPath);
+    final selectedDir = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Select Output Folder for ${baseName}_slim.mp4',
+    );
+
+    if (selectedDir != null && mounted) {
+      setState(() {
+        task.customOutputPath = p.join(selectedDir, '${baseName}_slim.mp4');
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Destination: ${task.customOutputPath}'),
+          backgroundColor: const Color(0xFF00E676),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _revealInFolder(String filePath) async {
+    try {
+      if (Platform.isMacOS) {
+        await Process.run('open', ['-R', filePath]);
+      } else if (Platform.isWindows) {
+        await Process.run('explorer.exe', ['/select,', filePath]);
+      } else if (Platform.isLinux) {
+        await Process.run('xdg-open', [p.dirname(filePath)]);
+      }
+    } catch (e) {
+      debugPrint('Error revealing in folder: $e');
+    }
+  }
+
+  String _getDestinationDisplay(VideoTask task) {
+    if (task.customOutputPath != null) {
+      return task.customOutputPath!;
+    }
+    final baseName = p.basenameWithoutExtension(task.inputPath);
+    final inputDir = p.dirname(task.inputPath);
+    return p.join(inputDir, '${baseName}_slim.mp4');
   }
 
   // Feature 3: ROI Calculations
@@ -1485,6 +1560,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00E676).withOpacity(0.18),
+                        foregroundColor: const Color(0xFF00E676),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      ),
+                      onPressed: () => _saveAsFile(task),
+                      icon: const Icon(Icons.save_alt, size: 13),
+                      label: const Text('Save As...', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: 'Show in Finder / Folder',
+                      icon: const Icon(Icons.folder_open, color: Color(0xFF00E5FF), size: 18),
+                      onPressed: () {
+                        if (task.outputPath != null) {
+                          _revealInFolder(task.outputPath!);
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00E5FF).withOpacity(0.15),
                         foregroundColor: const Color(0xFF00E5FF),
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1498,7 +1594,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: const Icon(Icons.compare, size: 13),
                       label: const Text('Compare', style: TextStyle(fontSize: 11)),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
                     // Feature 4: Safe Trash Button
                     if (!task.isOriginalTrashed)
                       IconButton(
@@ -1519,6 +1615,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
+          if (task.status == TaskStatus.idle) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.drive_file_move_outline, size: 13, color: Color(0xFF00E5FF)),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    'Save to: ${_getDestinationDisplay(task)}',
+                    style: const TextStyle(color: Colors.white60, fontSize: 10, fontFamily: 'monospace'),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => _chooseCustomOutputDestination(task),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.edit, size: 10, color: Color(0xFF00E5FF)),
+                        SizedBox(width: 3),
+                        Text('Change...', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 10, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (task.status == TaskStatus.compressing) ...[
             const SizedBox(height: 10),
             ClipRRect(
@@ -1578,6 +1711,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Text(
                           task.isVerified ? 'VERIFIED INTACT ✅' : 'VERIFYING...',
                           style: const TextStyle(color: Color(0xFF00E676), fontSize: 9, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.save_alt, color: Color(0xFF00E676), size: 12),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'File: ${task.outputPath ?? _getDestinationDisplay(task)}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: 'monospace'),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

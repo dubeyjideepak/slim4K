@@ -33,6 +33,7 @@ class VideoTask {
   double speedMultiplier;
   Duration? estimatedTimeRemaining;
   String? outputPath;
+  String? customOutputPath;
   int? outputFileSize;
   String? errorMessage;
 
@@ -63,6 +64,7 @@ class VideoTask {
     this.speedMultiplier = 1.0,
     this.estimatedTimeRemaining,
     this.outputPath,
+    this.customOutputPath,
     this.outputFileSize,
     this.errorMessage,
     this.generateProxy = false,

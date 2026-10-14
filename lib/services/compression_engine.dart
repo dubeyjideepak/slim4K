@@ -251,7 +251,22 @@ class CompressionEngine {
       }
     } else {
       String outputDir;
-      if (Platform.isAndroid) {
+      final inputDir = Directory(p.dirname(task.inputPath));
+      bool canWriteInput = false;
+      try {
+        if (await inputDir.exists()) {
+          final testFile = File(p.join(inputDir.path, '.test_write_${DateTime.now().millisecondsSinceEpoch}'));
+          await testFile.writeAsString('test');
+          await testFile.delete();
+          canWriteInput = true;
+        }
+      } catch (_) {
+        canWriteInput = false;
+      }
+
+      if (canWriteInput) {
+        outputDir = inputDir.path;
+      } else if (Platform.isAndroid) {
         final extDir = await getExternalStorageDirectory();
         outputDir = extDir?.path ?? (await getApplicationDocumentsDirectory()).path;
       } else {
@@ -259,7 +274,7 @@ class CompressionEngine {
         outputDir = docDir.path;
       }
       final baseName = p.basenameWithoutExtension(task.inputPath);
-      outputPath = p.join(outputDir, '${baseName}_slim4k.mp4');
+      outputPath = p.join(outputDir, '${baseName}_slim.mp4');
     }
 
     // Remove old output if exists
