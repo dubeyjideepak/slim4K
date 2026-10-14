@@ -33,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Professional Videographer Options
   bool _isFolderArchiveMode = false;
+  bool _saveFilesInPlace = true;
   ProjectScanResult? _projectScanResult;
   bool _generateProxies = false;
   bool _preserveOriginalAudio = true;
@@ -199,9 +200,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // Determine target output path
       String? customTarget = task.customOutputPath;
       if (customTarget == null && _projectScanResult != null && task.relativeSubPath != null) {
-        final ext = p.extension(task.inputPath);
-        final baseWithoutExt = p.withoutExtension(task.relativeSubPath!);
-        customTarget = p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
+        if (!_saveFilesInPlace) {
+          final ext = p.extension(task.inputPath);
+          final baseWithoutExt = p.withoutExtension(task.relativeSubPath!);
+          customTarget = p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
+        }
       }
 
       final outPath = await _engine.compressVideo(
@@ -263,8 +266,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _startAllPending() async {
     setState(() => _isProcessingBatch = true);
 
-    // If in folder archive mode, copy non-video files to destination tree first
-    if (_projectScanResult != null && _projectScanResult!.nonVideoFiles.isNotEmpty) {
+    // If mirroring into a separate folder, copy non-video files to destination tree first
+    if (!_saveFilesInPlace && _projectScanResult != null && _projectScanResult!.nonVideoFiles.isNotEmpty) {
       for (final nonVid in _projectScanResult!.nonVideoFiles) {
         await _engine.copyNonVideoFile(
           sourceFile: nonVid,
@@ -427,6 +430,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String _getDestinationDisplay(VideoTask task) {
     if (task.customOutputPath != null) {
       return task.customOutputPath!;
+    }
+    if (_projectScanResult != null && !_saveFilesInPlace && task.relativeSubPath != null) {
+      final ext = p.extension(task.inputPath);
+      final baseWithoutExt = p.withoutExtension(task.relativeSubPath!);
+      return p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
     }
     final baseName = p.basenameWithoutExtension(task.inputPath);
     final inputDir = p.dirname(task.inputPath);
@@ -1276,101 +1284,257 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Feature 1: Project Folder Mirroring Hero Picker
+  // Dual Hero Picker (Select Videos or Select Entire Folder)
   Widget _buildHeroPickCard() {
-    if (_isFolderArchiveMode) {
-      return InkWell(
-        onTap: _pickProjectFolder,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF161B22),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: const Color(0xFF7C4DFF).withOpacity(0.5),
-              width: 1.5,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.folder_copy_rounded,
-                size: 36,
-                color: const Color(0xFF7C4DFF).withOpacity(0.9),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _projectScanResult != null
-                    ? 'Folder: ${p.basename(_projectScanResult!.sourceDir)}'
-                    : 'Select Client Shoot Project Folder to Mirror',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _projectScanResult != null
-                    ? 'Mirrors tree into: ${p.basename(_projectScanResult!.targetDir)}\nFound ${_projectScanResult!.videoTasks.length} videos, ${_projectScanResult!.nonVideoFiles.length} project assets'
-                    : 'Mirrors full directory tree: compresses 4K videos & passes raw audio/photos untouched',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    if (_projectScanResult != null) {
+      final totalVideos = _projectScanResult!.videoTasks.length;
+      final completedVideos = _tasks.where((t) => t.status == TaskStatus.completed).length;
+      final isDone = totalVideos > 0 && completedVideos == totalVideos;
 
-    return InkWell(
-      onTap: _pickFiles,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
+      return Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: const Color(0xFF161B22),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: const Color(0xFF00E5FF).withOpacity(0.4),
+            color: const Color(0xFF7C4DFF).withOpacity(0.6),
             width: 1.5,
           ),
         ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.video_library_rounded,
-              size: 36,
-              color: const Color(0xFF00E5FF).withOpacity(0.9),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C4DFF).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.folder_open_rounded, color: Color(0xFF7C4DFF), size: 28),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              p.basename(_projectScanResult!.sourceDir),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF7C4DFF).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('FOLDER MODE', style: TextStyle(color: Color(0xFF7C4DFF), fontSize: 9, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '$totalVideos 4K videos found (${VideoTask.formatBytes(_projectScanResult!.totalSourceBytes)}) • ${_projectScanResult!.nonVideoFiles.length} other files',
+                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Change Folder',
+                  icon: const Icon(Icons.drive_file_move_rounded, color: Colors.white54, size: 20),
+                  onPressed: _isProcessingBatch ? null : _pickProjectFolder,
+                ),
+                IconButton(
+                  tooltip: 'Close Folder',
+                  icon: const Icon(Icons.close, color: Colors.white38, size: 20),
+                  onPressed: _isProcessingBatch ? null : () => setState(() {
+                    _projectScanResult = null;
+                    _tasks.clear();
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDone ? const Color(0xFF00E676) : const Color(0xFF7C4DFF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 4,
+                    ),
+                    onPressed: _isProcessingBatch
+                        ? null
+                        : isDone
+                            ? null
+                            : _startAllPending,
+                    icon: Icon(
+                      _isProcessingBatch
+                          ? Icons.hourglass_top_rounded
+                          : isDone
+                              ? Icons.check_circle_rounded
+                              : Icons.bolt_rounded,
+                      size: 20,
+                    ),
+                    label: Text(
+                      _isProcessingBatch
+                          ? 'Slimming Folder Files... ($completedVideos/$totalVideos)'
+                          : isDone
+                              ? 'All $totalVideos Files Slimmed Successfully ✅'
+                              : 'Slim All $totalVideos Files in Folder',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Select 4K Video Files to Compress',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Hardware 10x 4K compression with SMPTE timecode & studio audio passthrough',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
-              textAlign: TextAlign.center,
+            Row(
+              children: [
+                Icon(
+                  _saveFilesInPlace ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+                  color: const Color(0xFF7C4DFF),
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _saveFilesInPlace
+                        ? 'Saving each video as <filename>_slim.mp4 inside the folder (Originals intact)'
+                        : 'Mirroring entire tree into: ${p.basename(_projectScanResult!.targetDir)}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _saveFilesInPlace = !_saveFilesInPlace),
+                  child: Text(
+                    _saveFilesInPlace ? 'Switch to Mirror Folder' : 'Switch to In-Place',
+                    style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    // Default: Dual Hero Cards (Select Videos vs Select Folder)
+    return Row(
+      children: [
+        // Card 1: Select Individual Videos
+        Expanded(
+          child: InkWell(
+            onTap: _pickFiles,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              height: 120,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161B22),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFF00E5FF).withOpacity(0.35),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.video_library_rounded,
+                    size: 30,
+                    color: const Color(0xFF00E5FF).withOpacity(0.9),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Select Video(s)',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  const Text(
+                    'Pick individual 4K camera files',
+                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Card 2: Select Entire Folder (Slim All Files Inside)
+        Expanded(
+          child: InkWell(
+            onTap: _pickProjectFolder,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              height: 120,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161B22),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFF7C4DFF).withOpacity(0.55),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.folder_open_rounded,
+                    size: 30,
+                    color: const Color(0xFF7C4DFF).withOpacity(0.95),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Select Folder',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  const Text(
+                    'Slim all files inside a folder at once',
+                    style: TextStyle(color: Color(0xFFB388FF), fontSize: 11, fontWeight: FontWeight.w600),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildQueueHeader() {
+    final pendingTasks = _tasks.where((t) => t.status == TaskStatus.idle || t.status == TaskStatus.error).length;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1384,12 +1548,33 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         if (_tasks.isNotEmpty)
-          TextButton(
-            onPressed: () => setState(() {
-              _tasks.clear();
-              _projectScanResult = null;
-            }),
-            child: const Text('Clear All', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (pendingTasks > 0)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00E5FF),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                  onPressed: _isProcessingBatch ? null : _startAllPending,
+                  icon: const Icon(Icons.bolt, size: 14),
+                  label: Text(
+                    _isProcessingBatch ? 'Processing...' : 'Slim All ($pendingTasks)',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => setState(() {
+                  _tasks.clear();
+                  _projectScanResult = null;
+                }),
+                child: const Text('Clear All', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+              ),
+            ],
           ),
       ],
     );

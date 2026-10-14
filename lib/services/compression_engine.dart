@@ -185,6 +185,13 @@ class CompressionEngine {
     await for (final entity in sourceDir.list(recursive: true, followLinks: false)) {
       if (entity is File) {
         final ext = p.extension(entity.path).toLowerCase();
+        final baseWithoutExt = p.basenameWithoutExtension(entity.path).toLowerCase();
+
+        // Skip files that were already slimmed or proxies
+        if (baseWithoutExt.endsWith('_slim') || baseWithoutExt.endsWith('_slim4k') || baseWithoutExt.endsWith('_proxy')) {
+          continue;
+        }
+
         final size = await entity.length();
         totalBytes += size;
         final relPath = p.relative(entity.path, from: sourceDirPath);
