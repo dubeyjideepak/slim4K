@@ -98,11 +98,24 @@
       margin-bottom: 22px !important;
     }
     th, td {
-      padding: 9px 12px !important;
+      padding: 8px 12px !important;
     }
     .company-box {
-      padding: 18px !important;
-      margin-bottom: 16px !important;
+      padding: 16px 18px !important;
+      margin-bottom: 14px !important;
+    }
+    .contact-grid {
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 10px !important;
+      margin-bottom: 8px !important;
+    }
+    .website-center-box {
+      display: flex !important;
+      justify-content: center !important;
+    }
+    .website-item {
+      max-width: 420px !important;
+      padding: 8px 16px !important;
     }
   }
 
@@ -406,8 +419,20 @@
   }
   .contact-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 12px;
+    margin-bottom: 10px;
+  }
+  .website-center-box {
+    display: flex;
+    justify-content: center;
+  }
+  .website-item {
+    max-width: 440px;
+    width: 100%;
+    justify-content: center;
+    background: rgba(0, 229, 255, 0.05);
+    border: 1px solid rgba(0, 229, 255, 0.28);
   }
   .contact-item {
     background: rgba(255, 255, 255, 0.04);
@@ -661,7 +686,7 @@
       <a href="https://wa.me/917458829500" class="contact-item" target="_blank">
         <div class="contact-icon">📱</div>
         <div>
-          <div class="contact-label">कॉल / व्हाट्सएप (Direct)</div>
+          <div class="contact-label">कॉल / व्हाट्सएप (Direct Helpline)</div>
           <div class="contact-val">+91 74588 29500</div>
         </div>
       </a>
@@ -674,13 +699,15 @@
           <div class="contact-val">techsupport@neertechtechnologies.in</div>
         </div>
       </a>
+    </div>
 
-      <!-- Website -->
-      <a href="https://neertechtechnologies.in" class="contact-item" target="_blank">
+    <!-- Official Website Centered Below -->
+    <div class="website-center-box">
+      <a href="https://neertechtechnologies.in" class="contact-item website-item" target="_blank">
         <div class="contact-icon">🌐</div>
         <div>
-          <div class="contact-label">आधिकारिक वेबसाइट (Website)</div>
-          <div class="contact-val">neertechtechnologies.in</div>
+          <div class="contact-label">आधिकारिक वेबसाइट (Official Website)</div>
+          <div class="contact-val">https://neertechtechnologies.in</div>
         </div>
       </a>
     </div>
