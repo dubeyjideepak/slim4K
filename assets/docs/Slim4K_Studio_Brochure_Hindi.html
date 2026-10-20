@@ -23,13 +23,16 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
   body {
     font-family: 'Poppins', 'Noto Sans Devanagari', sans-serif;
     background-color: var(--bg-dark);
     color: var(--text-primary);
-    line-height: 1.6;
+    line-height: 1.5;
     padding: 24px;
     -webkit-font-smoothing: antialiased;
   }
@@ -40,80 +43,66 @@
     background: radial-gradient(circle at 50% 0%, #151D2F 0%, #080B11 70%);
     border: 1px solid var(--card-border);
     border-radius: 20px;
-    padding: 40px;
+    padding: 36px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 229, 255, 0.08);
     position: relative;
     overflow: hidden;
   }
 
-  /* Print Specific Optimization */
+  /* 100% Identical Print & PDF Engine */
+  @page {
+    size: A4 portrait;
+    margin: 6mm 10mm;
+  }
+
   @media print {
     body {
-      background: #FFFFFF !important;
-      color: #0F172A !important;
-      padding: 0;
+      background-color: #080B11 !important;
+      color: #FFFFFF !important;
+      padding: 0 !important;
+      margin: 0 !important;
     }
     .brochure-container {
       max-width: 100% !important;
+      width: 100% !important;
       border: none !important;
       box-shadow: none !important;
-      background: #FFFFFF !important;
-      padding: 10mm !important;
+      background: #080B11 !important;
+      padding: 6mm 4mm !important;
     }
     .no-print {
       display: none !important;
     }
+    /* Enforce Clean Page 2 Break - No Cuts in Middle of Cards! */
+    .page-break-before {
+      page-break-before: always !important;
+      break-before: page !important;
+      margin-top: 20px !important;
+    }
+    .feature-card, .roi-box, .company-box, .table-section, .header, .footer {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    .grid {
+      gap: 12px !important;
+      margin-bottom: 0 !important;
+    }
     .feature-card {
-      background: #F8FAFC !important;
-      border: 1px solid #CBD5E1 !important;
-      color: #0F172A !important;
-      page-break-inside: avoid;
-    }
-    .feature-card h3 {
-      color: #0369A1 !important;
-    }
-    .feature-card p {
-      color: #334155 !important;
+      padding: 16px !important;
     }
     .roi-box {
-      background: #F0FDF4 !important;
-      border: 2px solid #86EFAC !important;
-      color: #14532D !important;
+      padding: 18px !important;
+      margin-bottom: 22px !important;
     }
-    .roi-stat-val {
-      color: #15803D !important;
+    .table-section {
+      margin-bottom: 22px !important;
     }
-    table {
-      border-color: #CBD5E1 !important;
-    }
-    th {
-      background: #F1F5F9 !important;
-      color: #0F172A !important;
-    }
-    td {
-      color: #1E293B !important;
-      border-bottom: 1px solid #E2E8F0 !important;
-    }
-    .badge {
-      border: 1px solid #CBD5E1 !important;
-      background: #F1F5F9 !important;
-      color: #0284C7 !important;
-    }
-    .logo-box {
-      box-shadow: none !important;
+    th, td {
+      padding: 9px 12px !important;
     }
     .company-box {
-      background: #F8FAFC !important;
-      border: 2px solid #CBD5E1 !important;
-      color: #0F172A !important;
-    }
-    .contact-item {
-      background: #FFFFFF !important;
-      border: 1px solid #CBD5E1 !important;
-      color: #0F172A !important;
-    }
-    .contact-val {
-      color: #0369A1 !important;
+      padding: 18px !important;
+      margin-bottom: 16px !important;
     }
   }
 
@@ -148,16 +137,16 @@
   .header {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding-bottom: 28px;
-    margin-bottom: 32px;
+    padding-bottom: 20px;
+    margin-bottom: 24px;
   }
   .logo-box {
-    width: 90px;
-    height: 90px;
-    border-radius: 20px;
-    padding: 4px;
+    width: 80px;
+    height: 80px;
+    border-radius: 18px;
+    padding: 3px;
     background: linear-gradient(135deg, var(--cyan), var(--purple));
     box-shadow: 0 0 25px rgba(0, 229, 255, 0.3);
     flex-shrink: 0;
@@ -165,12 +154,12 @@
   .logo-img {
     width: 100%;
     height: 100%;
-    border-radius: 16px;
+    border-radius: 15px;
     display: block;
     object-fit: cover;
   }
   .header-content h1 {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 900;
     letter-spacing: -0.5px;
     background: linear-gradient(90deg, #FFFFFF, var(--cyan));
@@ -183,38 +172,38 @@
     background: rgba(0, 229, 255, 0.12);
     border: 1px solid rgba(0, 229, 255, 0.3);
     color: var(--cyan);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
-    padding: 4px 12px;
+    padding: 3px 10px;
     border-radius: 20px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   .header-tagline {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-secondary);
-    margin-top: 4px;
+    margin-top: 3px;
   }
 
   /* Hero Headline */
   .hero-headline {
     text-align: center;
-    margin-bottom: 36px;
+    margin-bottom: 26px;
     padding: 0 10px;
   }
   .hero-headline h2 {
-    font-size: 26px;
+    font-size: 23px;
     font-weight: 900;
     color: #FFFFFF;
-    line-height: 1.4;
-    margin-bottom: 10px;
+    line-height: 1.35;
+    margin-bottom: 8px;
   }
   .hero-headline h2 span.green {
     color: var(--green);
   }
   .hero-sub {
-    font-size: 15px;
+    font-size: 14px;
     color: var(--text-secondary);
     max-width: 720px;
     margin: 0 auto;
@@ -224,51 +213,51 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 18px;
-    margin-bottom: 36px;
+    gap: 14px;
+    margin-bottom: 24px;
   }
   .feature-card {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 14px;
-    padding: 20px;
+    border-radius: 12px;
+    padding: 16px 18px;
     position: relative;
     transition: transform 0.2s, border-color 0.2s;
   }
   .card-icon-box {
-    width: 44px;
-    height: 44px;
-    border-radius: 10px;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
-    margin-bottom: 12px;
+    font-size: 20px;
+    margin-bottom: 10px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
   .feature-card h3 {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 800;
     color: #FFFFFF;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
     display: flex;
     align-items: center;
     gap: 6px;
   }
   .feature-card p {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-secondary);
-    line-height: 1.5;
+    line-height: 1.45;
   }
   .card-badge {
     position: absolute;
-    top: 16px;
-    right: 16px;
-    font-size: 10px;
+    top: 14px;
+    right: 14px;
+    font-size: 9px;
     font-weight: 800;
-    padding: 3px 8px;
-    border-radius: 6px;
+    padding: 2px 7px;
+    border-radius: 5px;
   }
   .badge-cyan {
     background: rgba(0, 229, 255, 0.15);
@@ -288,12 +277,12 @@
 
   /* Comparison Table */
   .table-section {
-    margin-bottom: 36px;
+    margin-bottom: 26px;
   }
   .table-title {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 800;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
     text-align: center;
     color: #FFFFFF;
   }
@@ -301,17 +290,17 @@
     width: 100%;
     border-collapse: collapse;
     background: var(--card-bg);
-    border-radius: 12px;
+    border-radius: 10px;
     overflow: hidden;
     border: 1px solid var(--card-border);
   }
   th, td {
-    padding: 12px 16px;
+    padding: 10px 14px;
     text-align: left;
-    font-size: 13px;
+    font-size: 12px;
   }
   th {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
     font-weight: 700;
     border-bottom: 1px solid var(--card-border);
@@ -335,53 +324,53 @@
   .roi-box {
     background: linear-gradient(135deg, rgba(0, 230, 118, 0.08), rgba(0, 229, 255, 0.04));
     border: 1px solid rgba(0, 230, 118, 0.3);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 36px;
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin-bottom: 26px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 20px;
   }
   .roi-content h4 {
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 900;
     color: var(--green);
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .roi-content p {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-secondary);
   }
   .roi-stats {
     display: flex;
-    gap: 16px;
+    gap: 12px;
     flex-shrink: 0;
   }
   .roi-stat-item {
     text-align: center;
-    padding: 10px 16px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 10px;
+    padding: 8px 14px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.06);
   }
   .roi-stat-val {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 900;
     color: var(--green);
   }
   .roi-stat-lbl {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-secondary);
   }
 
   /* Company & Contact Card */
   .company-box {
     background: linear-gradient(135deg, #131A29, #0D131F);
-    border: 1.5px solid rgba(0, 229, 255, 0.3);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
+    border: 1.5px solid rgba(0, 229, 255, 0.35);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin-bottom: 18px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   }
   .company-head {
@@ -389,17 +378,17 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding-bottom: 16px;
-    margin-bottom: 18px;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
   }
   .company-brand h4 {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 900;
     color: #FFFFFF;
     letter-spacing: -0.3px;
   }
   .company-brand p {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--cyan);
     font-weight: 600;
   }
@@ -407,27 +396,27 @@
     background: rgba(0, 230, 118, 0.12);
     border: 1px solid rgba(0, 230, 118, 0.3);
     color: var(--green);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    padding: 5px 12px;
+    padding: 4px 10px;
     border-radius: 20px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
   }
   .contact-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
+    gap: 12px;
   }
   .contact-item {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 12px 14px;
+    border-radius: 10px;
+    padding: 10px 12px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     text-decoration: none;
     color: inherit;
     transition: border-color 0.2s, transform 0.2s;
@@ -437,26 +426,26 @@
     transform: translateY(-2px);
   }
   .contact-icon {
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     border-radius: 8px;
     background: rgba(0, 229, 255, 0.1);
     color: var(--cyan);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 16px;
     flex-shrink: 0;
   }
   .contact-label {
-    font-size: 10px;
+    font-size: 9px;
     text-transform: uppercase;
     letter-spacing: 0.8px;
     color: var(--text-secondary);
     font-weight: 700;
   }
   .contact-val {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
     color: #FFFFFF;
     white-space: nowrap;
@@ -469,23 +458,23 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-top: 12px;
+    padding-top: 6px;
   }
   .footer-left h5 {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
     color: #FFFFFF;
   }
   .footer-left p {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-secondary);
   }
   .cta-badge {
     background: linear-gradient(135deg, var(--cyan), var(--purple));
     color: #000;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 900;
-    padding: 6px 16px;
+    padding: 5px 14px;
     border-radius: 20px;
     letter-spacing: 0.5px;
   }
@@ -502,6 +491,7 @@
 
 <div class="brochure-container">
   
+  <!-- ================= PAGE 1 ================= -->
   <!-- Header -->
   <div class="header">
     <div class="logo-box">
@@ -590,8 +580,9 @@
 
   </div>
 
+  <!-- ================= PAGE 2 (CLEAN BREAK) ================= -->
   <!-- ROI Savings Highlight Box -->
-  <div class="roi-box">
+  <div class="roi-box page-break-before">
     <div class="roi-content">
       <h4>💰 एक वेडिंग सीजन का सीधा नफा-नुकसान</h4>
       <p>अगर आपका स्टूडियो एक साल में 30 से 40 शादियां या इवेंट्स शूट करता है:</p>
