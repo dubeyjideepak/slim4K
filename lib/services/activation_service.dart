@@ -45,8 +45,43 @@ class ActivationService {
     return File(p.join(dir.path, 'slim4k_activation_cache.json'));
   }
 
-  /// Generates a unique, persistent client_id for this machine/installation
-  String _generateUniqueClientId() {
+  /// Generates a unique, persistent client_id tied to hardware on Windows & Mac
+  Future<String> _resolveHardwareClientId() async {
+    if (!kIsWeb && Platform.isWindows) {
+      try {
+        final res = await Process.run('reg', [
+          'query',
+          r'HKLM\SOFTWARE\Microsoft\Cryptography',
+          '/v',
+          'MachineGuid',
+        ]);
+        if (res.exitCode == 0) {
+          final out = res.stdout.toString();
+          final match = RegExp(r'MachineGuid\s+REG_SZ\s+([A-Fa-f0-9\-]+)').firstMatch(out);
+          if (match != null && match.group(1) != null) {
+            final guid = match.group(1)!.trim().replaceAll('-', '').toLowerCase();
+            return 'c_win_$guid';
+          }
+        }
+      } catch (e) {
+        debugPrint('Windows MachineGuid query error: $e');
+      }
+    } else if (!kIsWeb && Platform.isMacOS) {
+      try {
+        final res = await Process.run('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']);
+        if (res.exitCode == 0) {
+          final out = res.stdout.toString();
+          final match = RegExp(r'"IOPlatformUUID"\s*=\s*"([^"]+)"').firstMatch(out);
+          if (match != null && match.group(1) != null) {
+            final uuid = match.group(1)!.trim().replaceAll('-', '').toLowerCase();
+            return 'c_mac_$uuid';
+          }
+        }
+      } catch (e) {
+        debugPrint('macOS IOPlatformUUID query error: $e');
+      }
+    }
+
     final rand = Random.secure();
     final randomHex = List.generate(8, (_) => rand.nextInt(16).toRadixString(16)).join();
     final timestamp = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
@@ -93,7 +128,7 @@ class ActivationService {
     // If keychain already has a clientId, reuse it so quota & history restore!
     final clientId = (keychainClientId != null && keychainClientId.isNotEmpty)
         ? keychainClientId
-        : _generateUniqueClientId();
+        : await _resolveHardwareClientId();
 
     await KeychainService().setClientId(clientId);
 

@@ -40,6 +40,10 @@ class KeychainService {
   /// Native macOS security CLI fallback (guarantees persistence across bundle re-installs on Mac)
   bool get _isMacDesktop => !kIsWeb && Platform.isMacOS;
 
+  /// Native Windows Registry fallback (guarantees persistence across app folder deletion on Windows)
+  bool get _isWindowsDesktop => !kIsWeb && Platform.isWindows;
+  static const String _winRegKey = r'HKCU\Software\Neertech\Slim4K';
+
   /// Writes a key-value pair to Keychain / Secure Storage
   Future<void> write(String key, String value) async {
     try {
@@ -50,6 +54,8 @@ class KeychainService {
 
     if (_isMacDesktop) {
       await _writeNativeMacKeychain(key, value);
+    } else if (_isWindowsDesktop) {
+      await _writeWindowsRegistry(key, value);
     }
   }
 
@@ -72,12 +78,20 @@ class KeychainService {
         } catch (_) {}
         return val;
       }
+    } else if (_isWindowsDesktop) {
+      val = await _readWindowsRegistry(key);
+      if (val != null && val.isNotEmpty) {
+        try {
+          await _storage.write(key: key, value: val);
+        } catch (_) {}
+        return val;
+      }
     }
 
     return null;
   }
 
-  /// Deletes a key from Keychain
+  /// Deletes a key from Keychain / Secure Storage
   Future<void> delete(String key) async {
     try {
       await _storage.delete(key: key);
@@ -85,6 +99,8 @@ class KeychainService {
 
     if (_isMacDesktop) {
       await _deleteNativeMacKeychain(key);
+    } else if (_isWindowsDesktop) {
+      await _deleteWindowsRegistry(key);
     }
   }
 
@@ -186,6 +202,60 @@ class KeychainService {
           '-s', _serviceName,
         ],
       );
+    } catch (_) {}
+  }
+
+  // --- Native Windows Registry Fallback (HKCU\Software\Neertech\Slim4K) ---
+
+  Future<void> _writeWindowsRegistry(String key, String value) async {
+    try {
+      await Process.run('reg', [
+        'add',
+        _winRegKey,
+        '/v',
+        key,
+        '/t',
+        'REG_SZ',
+        '/d',
+        value,
+        '/f',
+      ]);
+    } catch (e) {
+      debugPrint('Windows Registry write error: $e');
+    }
+  }
+
+  Future<String?> _readWindowsRegistry(String key) async {
+    try {
+      final res = await Process.run('reg', [
+        'query',
+        _winRegKey,
+        '/v',
+        key,
+      ]);
+      if (res.exitCode == 0) {
+        final out = res.stdout.toString();
+        final match = RegExp(RegExp.escape(key) + r'\s+REG_SZ\s+(.*)').firstMatch(out);
+        if (match != null && match.group(1) != null) {
+          final val = match.group(1)!.trim();
+          if (val.isNotEmpty) return val;
+        }
+      }
+    } catch (e) {
+      debugPrint('Windows Registry read error: $e');
+    }
+    return null;
+  }
+
+  Future<void> _deleteWindowsRegistry(String key) async {
+    try {
+      await Process.run('reg', [
+        'delete',
+        _winRegKey,
+        '/v',
+        key,
+        '/f',
+      ]);
     } catch (_) {}
   }
 }
