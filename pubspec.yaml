@@ -42,6 +42,7 @@ dependencies:
   video_player_android: ^2.12.2
   path: ^1.9.1
   video_player_win: ^3.3.0
+  flutter_secure_storage: ^11.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

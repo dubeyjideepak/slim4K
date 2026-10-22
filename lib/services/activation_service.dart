@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../models/app_activation.dart';
+import 'keychain_service.dart';
+import 'quota_service.dart';
 
 class ActivationService {
   static final ActivationService _instance = ActivationService._internal();
@@ -51,8 +53,11 @@ class ActivationService {
     return 'c_${currentPlatform}_${randomHex}_$timestamp';
   }
 
-  /// Loads locally persisted activation, or creates a new one
+  /// Loads locally persisted activation, or creates a new one (Keychain-resilient across reinstalls)
   Future<ClientActivation> loadOrCreateLocalActivation() async {
+    // 1. Check hardware Keychain first for persistent device ID (survives app re-install)
+    final keychainClientId = await KeychainService().getClientId();
+
     final file = await _getConfigFile();
     if (await file.exists()) {
       try {
@@ -60,19 +65,42 @@ class ActivationService {
         final json = jsonDecode(content) as Map<String, dynamic>;
         final activation = ClientActivation.fromJson(json);
         if (activation.clientId.isNotEmpty) {
-          _currentActivation = activation;
-          return activation;
+          // If keychain has an established id, prefer it to prevent divergence
+          final resolvedId = (keychainClientId != null && keychainClientId.isNotEmpty)
+              ? keychainClientId
+              : activation.clientId;
+          await KeychainService().setClientId(resolvedId);
+
+          final updatedActivation = ClientActivation(
+            appId: activation.appId,
+            clientId: resolvedId,
+            platform: activation.platform,
+            isActive: activation.isActive,
+            lastHeartbeat: activation.lastHeartbeat,
+            firstRegisteredAt: activation.firstRegisteredAt,
+            status: activation.status,
+            deactivationReason: activation.deactivationReason,
+          );
+          _currentActivation = updatedActivation;
+          return updatedActivation;
         }
       } catch (e) {
         debugPrint('Error loading cached activation: $e');
       }
     }
 
-    // First time setup on this device
+    // First time setup OR fresh re-installation:
+    // If keychain already has a clientId, reuse it so quota & history restore!
+    final clientId = (keychainClientId != null && keychainClientId.isNotEmpty)
+        ? keychainClientId
+        : _generateUniqueClientId();
+
+    await KeychainService().setClientId(clientId);
+
     final now = DateTime.now();
     final newActivation = ClientActivation(
       appId: appId,
-      clientId: _generateUniqueClientId(),
+      clientId: clientId,
       platform: currentPlatform,
       isActive: true, // Default true as requested
       lastHeartbeat: now,
@@ -98,6 +126,9 @@ class ActivationService {
   /// Verifies license and syncs daily heartbeat with Firestore
   Future<ClientActivation> verifyAndSync({bool forceOnline = false}) async {
     final activation = _currentActivation ?? await loadOrCreateLocalActivation();
+
+    // Initialize QuotaService with persistent clientId
+    Future.microtask(() => QuotaService().initialize(clientId: activation.clientId));
 
     try {
       final client = HttpClient();
@@ -201,6 +232,7 @@ class ActivationService {
   /// Registers a brand new client on Firestore with is_active = true
   Future<void> _registerNewClientOnFirestore(HttpClient client, ClientActivation activation) async {
     final nowIso = DateTime.now().toUtc().toIso8601String();
+    final quota = QuotaService();
 
     final payload = {
       'fields': {
@@ -210,6 +242,12 @@ class ActivationService {
         'is_active': {'booleanValue': true},
         'last_heartbeat': {'stringValue': nowIso},
         'first_registered_at': {'stringValue': nowIso},
+        'bytes_slimmed': {'integerValue': quota.totalBytesSlimmed.toString()},
+        'tb_slimmed': {'doubleValue': double.parse(quota.totalTbSlimmed.toStringAsFixed(4))},
+        'bytes_saved': {'integerValue': quota.totalBytesSaved.toString()},
+        'files_count': {'integerValue': quota.totalFilesSlimmed.toString()},
+        'quota_limit_bytes': {'integerValue': quota.quotaLimitBytes.toString()},
+        'quota_limit_tb': {'doubleValue': double.parse(quota.quotaLimitTb.toStringAsFixed(1))},
       }
     };
 

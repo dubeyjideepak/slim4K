@@ -8,6 +8,8 @@ import '../models/app_activation.dart';
 import '../models/video_task.dart';
 import '../services/activation_service.dart';
 import '../services/compression_engine.dart';
+import '../services/keychain_service.dart';
+import '../services/quota_service.dart';
 import '../widgets/activation_lock_widget.dart';
 import '../widgets/comparison_player.dart';
 
@@ -21,6 +23,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final CompressionEngine _engine = CompressionEngine();
   final ActivationService _activationService = ActivationService();
+  final QuotaService _quotaService = QuotaService();
   final List<VideoTask> _tasks = [];
   String _activeEncoder = 'Detecting...';
   bool _isProcessingBatch = false;
@@ -43,9 +46,20 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _quotaService.addListener(_onQuotaUpdated);
     _checkActivation();
     _detectEncoder();
     _checkInitialFile();
+  }
+
+  @override
+  void dispose() {
+    _quotaService.removeListener(_onQuotaUpdated);
+    super.dispose();
+  }
+
+  void _onQuotaUpdated() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _checkActivation() async {
@@ -188,6 +202,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _startCompression(VideoTask task) async {
+    // Enforce 10 TB Annual Limit
+    if (_quotaService.isQuotaExceeded) {
+      _showQuotaExceededDialog();
+      return;
+    }
+
     setState(() {
       task.status = TaskStatus.compressing;
       task.progress = 0.0;
@@ -253,6 +273,14 @@ class _HomeScreenState extends State<HomeScreen> {
           task.isVerified = isValid;
         });
       }
+
+      // Track slimmed data in Keychain & Firestore!
+      final clientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+      await _quotaService.recordSlimmedVideo(
+        inputBytes: task.inputFileSize,
+        outputBytes: outSize,
+        clientId: clientId,
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -263,7 +291,65 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _showQuotaExceededDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF161B22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_clock, color: Colors.amberAccent),
+            SizedBox(width: 10),
+            Text('10 TB Annual Quota Reached', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You have reached your 10.0 TB annual video slimming license quota (${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB processed).',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('To upgrade or reset your license quota, please contact:', style: TextStyle(color: Colors.white60, fontSize: 11)),
+                  SizedBox(height: 6),
+                  Text('🏢 Neertech Technologies', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  SizedBox(height: 4),
+                  Text('📞 +91 74588 29500', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
+                  Text('✉️ techsupport@neertechtechnologies.in', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
+                  Text('🌐 https://neertechtechnologies.in', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK', style: TextStyle(color: Color(0xFF00E5FF))),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _startAllPending() async {
+    if (_quotaService.isQuotaExceeded) {
+      _showQuotaExceededDialog();
+      return;
+    }
     setState(() => _isProcessingBatch = true);
 
     // If mirroring into a separate folder, copy non-video files to destination tree first
@@ -596,6 +682,63 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _quotaStatusBadge() {
+    final isExceeded = _quotaService.isQuotaExceeded;
+    final isNearLimit = _quotaService.usedPercentage > 85;
+    final color = isExceeded
+        ? Colors.redAccent
+        : (isNearLimit ? Colors.amberAccent : const Color(0xFF00E5FF));
+
+    return Tooltip(
+      message: '10 TB Annual Slimmer License: ${_quotaService.formattedUsage} (${_quotaService.formattedRemaining})',
+      child: InkWell(
+        onTap: () {
+          if (isExceeded) {
+            _showQuotaExceededDialog();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '10 TB Annual Quota: ${_quotaService.formattedUsage} • ${_quotaService.formattedRemaining}',
+                ),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF161B22),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withOpacity(0.5), width: 1.2),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isExceeded ? Icons.lock_clock : Icons.pie_chart_outline,
+                size: 13,
+                color: color,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildOfflineGraceBanner() {
     if (_activation == null || _activation!.status != ActivationStatus.offlineGrace) {
       return const SizedBox.shrink();
@@ -709,6 +852,8 @@ class _HomeScreenState extends State<HomeScreen> {
           // License pill
           if (_activation != null)
             _licenseStatusBadge(_activation!),
+          // 10 TB Annual Quota pill
+          _quotaStatusBadge(),
           // Mode switch pill
           Container(
             margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -1220,6 +1365,99 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          // 10 TB Annual Video Slimming Quota Tracker
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.28),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _quotaService.isQuotaExceeded
+                    ? Colors.redAccent.withOpacity(0.4)
+                    : const Color(0xFF00E5FF).withOpacity(0.2),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.speed,
+                          color: _quotaService.isQuotaExceeded ? Colors.redAccent : const Color(0xFF00E5FF),
+                          size: 15,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'ANNUAL SLIMMER QUOTA (10 TB LICENSE)',
+                          style: TextStyle(
+                            color: Color(0xFF00E5FF),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB / ${_quotaService.quotaLimitTb.toStringAsFixed(1)} TB (${_quotaService.formattedPercentage})',
+                      style: TextStyle(
+                        color: _quotaService.isQuotaExceeded
+                            ? Colors.redAccent
+                            : (_quotaService.usedPercentage > 85 ? Colors.amberAccent : Colors.white),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: (_quotaService.usedPercentage / 100.0).clamp(0.0, 1.0),
+                    minHeight: 6,
+                    backgroundColor: Colors.white10,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _quotaService.isQuotaExceeded
+                          ? Colors.redAccent
+                          : (_quotaService.usedPercentage > 85
+                              ? Colors.amberAccent
+                              : const Color(0xFF00E676)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.shield_outlined, size: 11, color: Colors.white38),
+                        SizedBox(width: 4),
+                        Text(
+                          'Hardware Keychain & Cloud Sync Active',
+                          style: TextStyle(color: Colors.white38, fontSize: 9.5),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      _quotaService.formattedRemaining,
+                      style: const TextStyle(
+                        color: Color(0xFF00E676),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
