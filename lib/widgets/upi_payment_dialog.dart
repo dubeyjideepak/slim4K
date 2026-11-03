@@ -28,29 +28,113 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   bool _isActivated = false;
   String? _statusFeedback;
 
-  // Official NeerTech UPI Details
-  static const String upiId = '7458829500@okaxis';
-  static const String payeeName = 'NeerTech Technologies';
-  static const String licenseAmount = '8999';
-  static const String supportPhone = '+91 74588 29500';
-  static const String cashfreePaymentUrl = 'https://payments.cashfree.com/links?code=Nb7rbehn28jg_AAAAAAAWrHQ';
+  // Default NeerTech UPI & Cashfree Details (dynamically synced from Firestore)
+  static const String defaultUpiId = '7458829500@okaxis';
+  static const String defaultPayeeName = 'NeerTech Technologies';
+  static const String defaultLicenseAmount = '8999';
+  static const String defaultSupportPhone = '+91 74588 29500';
+  static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/links?code=Nb7rbehn28jg_AAAAAAAWrHQ';
+
+  String _upiId = defaultUpiId;
+  String _payeeName = defaultPayeeName;
+  String _licenseAmount = defaultLicenseAmount;
+  String _supportPhone = defaultSupportPhone;
+  String _cashfreePaymentUrl = defaultCashfreePaymentUrl;
 
   String get _clientId => _activationService.currentActivation?.clientId ?? '';
 
   String get _upiPayload {
     final note = 'SLIM-$_clientId';
-    return 'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(payeeName)}&am=$licenseAmount&cu=INR&tn=${Uri.encodeComponent(note)}';
+    return 'upi://pay?pa=$_upiId&pn=${Uri.encodeComponent(_payeeName)}&am=$_licenseAmount&cu=INR&tn=${Uri.encodeComponent(note)}';
+  }
+
+  String get _formattedAmount {
+    final numVal = int.tryParse(_licenseAmount);
+    if (numVal != null) {
+      return numVal.toString().replaceAllMapped(
+        RegExp(r'(\d+?)(?=(\d\d)+(\d)(?!\d))'),
+        (Match m) => '${m[1]},',
+      );
+    }
+    return _licenseAmount;
   }
 
   @override
   void initState() {
     super.initState();
+    // Load dynamic pricing and payment configurations from Firestore
+    _loadDynamicPricingConfig();
+
     // Start automated 3-second background polling for zero-key auto-activation
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!_isActivated && !_isChecking) {
         _checkPaymentAndAutoActivate(isBackground: true);
       }
     });
+  }
+
+  /// Loads real-time pricing and Cashfree links dynamically from Firestore
+  Future<void> _loadDynamicPricingConfig() async {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 6);
+
+      // 1. Fetch global pricing document
+      final globalUri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/global_pricing?key=${QuotaService.apiKey}',
+      );
+      final req = await client.getUrl(globalUri);
+      final resp = await req.close();
+      if (resp.statusCode == 200) {
+        final body = await utf8.decoder.bind(resp).join();
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+
+        final amt = fields['license_amount']?['stringValue'] ?? fields['license_amount']?['integerValue']?.toString();
+        final cfUrl = fields['cashfree_payment_url']?['stringValue'];
+        final upi = fields['upi_id']?['stringValue'];
+        final payee = fields['payee_name']?['stringValue'];
+        final phone = fields['support_phone']?['stringValue'];
+
+        if (mounted) {
+          setState(() {
+            if (amt != null && amt.isNotEmpty) _licenseAmount = amt;
+            if (cfUrl != null && cfUrl.isNotEmpty) _cashfreePaymentUrl = cfUrl;
+            if (upi != null && upi.isNotEmpty) _upiId = upi;
+            if (payee != null && payee.isNotEmpty) _payeeName = payee;
+            if (phone != null && phone.isNotEmpty) _supportPhone = phone;
+          });
+        }
+      }
+
+      // 2. Also check if client has an individual custom discount or price override
+      if (_clientId.isNotEmpty) {
+        final clientUri = Uri.parse(
+          'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$_clientId?key=${QuotaService.apiKey}',
+        );
+        final clientReq = await client.getUrl(clientUri);
+        final clientResp = await clientReq.close();
+        if (clientResp.statusCode == 200) {
+          final clientBody = await utf8.decoder.bind(clientResp).join();
+          final clientDoc = jsonDecode(clientBody) as Map<String, dynamic>;
+          final clientFields = clientDoc['fields'] as Map<String, dynamic>? ?? {};
+
+          final clientAmt = clientFields['license_amount']?['stringValue'] ?? clientFields['license_amount']?['integerValue']?.toString();
+          final clientCfUrl = clientFields['cashfree_payment_url']?['stringValue'];
+
+          if (mounted) {
+            setState(() {
+              if (clientAmt != null && clientAmt.isNotEmpty) _licenseAmount = clientAmt;
+              if (clientCfUrl != null && clientCfUrl.isNotEmpty) _cashfreePaymentUrl = clientCfUrl;
+            });
+          }
+        }
+      }
+
+      client.close();
+    } catch (e) {
+      debugPrint('Dynamic pricing config sync offline/fallback: $e');
+    }
   }
 
   @override
@@ -140,12 +224,12 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   }
 
   void _copyUpiId() {
-    Clipboard.setData(const ClipboardData(text: upiId));
+    Clipboard.setData(ClipboardData(text: _upiId));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('UPI ID copied: 7458829500@okaxis'),
-        backgroundColor: Color(0xFF00E5FF),
-        duration: Duration(seconds: 2),
+      SnackBar(
+        content: Text('UPI ID copied: $_upiId'),
+        backgroundColor: const Color(0xFF00E5FF),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -287,9 +371,9 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                           const SizedBox(height: 12),
 
                           // Price Badge
-                          const Text(
-                            '₹8,999 / Year',
-                            style: TextStyle(
+                          Text(
+                            '₹$_formattedAmount / Year',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -312,14 +396,14 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(color: Colors.white.withOpacity(0.1)),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.copy_rounded, color: Color(0xFF00E5FF), size: 13),
-                                  SizedBox(width: 6),
+                                  const Icon(Icons.copy_rounded, color: Color(0xFF00E5FF), size: 13),
+                                  const SizedBox(width: 6),
                                   Text(
-                                    upiId,
-                                    style: TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.bold),
+                                    _upiId,
+                                    style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
@@ -489,13 +573,20 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               ),
                               onPressed: () {
-                                Clipboard.setData(const ClipboardData(text: cashfreePaymentUrl));
+                                Clipboard.setData(ClipboardData(text: _cashfreePaymentUrl));
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Cashfree Payment Link copied! Open in your browser.'),
+                                    content: Text('Cashfree Payment Link copied! Opening checkout in browser...'),
                                     backgroundColor: Color(0xFF00E5FF),
                                   ),
                                 );
+                                try {
+                                  if (!kIsWeb && Platform.isWindows) {
+                                    Process.run('cmd', ['/c', 'start', '', _cashfreePaymentUrl]);
+                                  } else if (!kIsWeb && Platform.isMacOS) {
+                                    Process.run('open', [_cashfreePaymentUrl]);
+                                  }
+                                } catch (_) {}
                               },
                               icon: const Icon(Icons.open_in_browser_rounded, size: 16),
                               label: const Text(
@@ -536,7 +627,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                               ),
                               const SizedBox(height: 4),
                               SelectableText(
-                                '📱 $supportPhone  •  NeerTech Technologies',
+                                '📱 $_supportPhone  •  $_payeeName',
                                 style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.bold),
                               ),
                             ],
