@@ -20,7 +20,6 @@ void main() {
 
     test('TB calculation conversions', () {
       const oneTbBytes = 1024 * 1024 * 1024 * 1024; // 1,099,511,627,776 bytes
-      final quota = QuotaService();
 
       // Test conversion helper formula
       final tb = oneTbBytes / 1099511627776.0;

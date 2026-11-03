@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_activation.dart';
@@ -524,46 +523,17 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _dialogInfoRow('App ID', act.appId),
+            _dialogInfoRow('Product', 'Slim4K Studio Edition'),
             const Divider(color: Color(0xFF21262D)),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Client ID', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                Flexible(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          act.clientId,
-                          style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontFamily: 'monospace'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.copy, size: 14, color: Color(0xFF00E5FF)),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: act.clientId));
-                          Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Client ID copied to clipboard!')),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            _dialogInfoRow('Edition', act.isActive ? 'Pro Studio (Licensed)' : 'Free Trial'),
             const Divider(color: Color(0xFF21262D)),
             _dialogInfoRow('Platform', act.platform.toUpperCase()),
             const Divider(color: Color(0xFF21262D)),
             _dialogInfoRow('Status', act.isActive ? 'Active ✅' : 'Inactive ❌'),
             const Divider(color: Color(0xFF21262D)),
-            _dialogInfoRow('Last Heartbeat', dateFormat.format(act.lastHeartbeat.toLocal())),
+            _dialogInfoRow('Last Verified', dateFormat.format(act.lastHeartbeat.toLocal())),
             const Divider(color: Color(0xFF21262D)),
-            _dialogInfoRow('Offline Days', '${act.daysSinceLastHeartbeat} / 15 max'),
+            _dialogInfoRow('Offline Status', '${act.daysSinceLastHeartbeat} / 15 days grace'),
           ],
         ),
         actions: [

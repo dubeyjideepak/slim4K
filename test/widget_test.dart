@@ -58,8 +58,7 @@ void main() {
     );
 
     expect(find.text('15-Day Offline Limit Exceeded'), findsOneWidget);
-    expect(find.text('c_test_device_99'), findsOneWidget);
-    expect(find.text('slim4k'), findsOneWidget);
+    expect(find.text('Slim4K Studio Edition'), findsOneWidget);
     expect(find.text('Check Status & Re-activate'), findsOneWidget);
   });
 

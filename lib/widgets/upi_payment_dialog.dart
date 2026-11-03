@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -232,17 +233,6 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
     } catch (_) {}
   }
 
-  void _copyClientId() {
-    Clipboard.setData(ClipboardData(text: _clientId));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Machine ID copied to clipboard!'),
-        backgroundColor: Color(0xFF00E5FF),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -453,48 +443,6 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                     ? 'Your payment was verified. 10 TB Annual License has been automatically bound to this machine.'
                                     : 'Once you complete payment via Cashfree in your browser or on phone, this screen automatically unlocks itself. No key required!',
                                 style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Machine Hardware ID Box
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF161B22),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.white.withOpacity(0.06)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Hardware Machine ID (Locked to this PC):',
-                                style: TextStyle(color: Colors.white54, fontSize: 10.5),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: SelectableText(
-                                      _clientId,
-                                      style: const TextStyle(
-                                        color: Color(0xFF00E5FF),
-                                        fontFamily: 'monospace',
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                  InkWell(
-                                    onTap: _copyClientId,
-                                    child: const Icon(Icons.copy_rounded, color: Color(0xFF00E5FF), size: 15),
-                                  ),
-                                ],
                               ),
                             ],
                           ),

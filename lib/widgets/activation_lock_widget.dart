@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/app_activation.dart';
 import '../services/activation_service.dart';
@@ -49,17 +48,6 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
         setState(() => _isChecking = false);
       }
     }
-  }
-
-  void _copyClientId() {
-    Clipboard.setData(ClipboardData(text: widget.activation.clientId));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Client ID copied to clipboard!'),
-        backgroundColor: Color(0xFF00E5FF),
-        duration: Duration(seconds: 2),
-      ),
-    );
   }
 
   @override
@@ -148,38 +136,13 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
                     ),
                     child: Column(
                       children: [
-                        _infoRow('App ID', widget.activation.appId),
-                        const Divider(color: Color(0xFF21262D), height: 18),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'Client ID',
-                              style: TextStyle(color: Colors.white54, fontSize: 12),
-                            ),
-                            const Spacer(),
-                            Flexible(
-                              child: SelectableText(
-                                widget.activation.clientId,
-                                style: const TextStyle(
-                                  color: Color(0xFF00E5FF),
-                                  fontFamily: 'monospace',
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: _copyClientId,
-                              child: const Icon(Icons.copy_rounded, color: Color(0xFF00E5FF), size: 16),
-                            ),
-                          ],
-                        ),
+                        _infoRow('Product', 'Slim4K Studio Edition'),
                         const Divider(color: Color(0xFF21262D), height: 18),
                         _infoRow('Platform', widget.activation.platform.toUpperCase()),
                         const Divider(color: Color(0xFF21262D), height: 18),
-                        _infoRow('Last Heartbeat', dateFormat.format(widget.activation.lastHeartbeat.toLocal())),
+                        _infoRow('Status', is15DayExpiry ? 'Offline Limit Exceeded' : 'License Verification Required'),
+                        const Divider(color: Color(0xFF21262D), height: 18),
+                        _infoRow('Last Sync', dateFormat.format(widget.activation.lastHeartbeat.toLocal())),
                       ],
                     ),
                   ),
