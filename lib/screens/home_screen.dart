@@ -754,7 +754,7 @@ class _HomeScreenState extends State<HomeScreen> {
               CircularProgressIndicator(color: Color(0xFF00E5FF)),
               SizedBox(height: 16),
               Text(
-                'Connecting to Firestore & Verifying License...',
+                'Connecting to License Server & Verifying License...',
                 style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ],

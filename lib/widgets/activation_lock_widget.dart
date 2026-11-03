@@ -126,8 +126,8 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
                   // Subtitle explanation
                   Text(
                     is15DayExpiry
-                        ? 'This client remained disconnected from Firestore for more than 15 days. As per security policy, access is locked until reactivated from Firebase.'
-                        : 'Access for this client has been deactivated by administrator in Firebase Console.',
+                        ? 'This installation has remained offline for more than 15 days. As per security policy, access is locked until verified with the license server.'
+                        : 'Access for this installation has been deactivated by the administrator.',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 13,
@@ -205,7 +205,7 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
                             )
                           : const Icon(Icons.refresh_rounded, size: 20),
                       label: Text(
-                        _isChecking ? 'Checking Firestore...' : 'Check Status & Re-activate',
+                        _isChecking ? 'Verifying License...' : 'Check Status & Re-activate',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
                     ),

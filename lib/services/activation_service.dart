@@ -200,7 +200,7 @@ class ActivationService {
         if (!remoteIsActive) {
           activation.isActive = false;
           activation.status = ActivationStatus.deactivatedAdmin;
-          activation.deactivationReason = 'Deactivated by Administrator in Firebase Console';
+          activation.deactivationReason = 'License suspended by administrator';
           await _saveLocalActivation(activation);
           _currentActivation = activation;
           client.close();
