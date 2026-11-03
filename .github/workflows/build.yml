@@ -114,13 +114,18 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Ooutput windows\installer\slim4k_setup.iss
 
-      - name: Upload Windows Artifacts
+      - name: Upload Windows Installer Wizard
         uses: actions/upload-artifact@v4
         with:
           name: Slim4K-Windows-Release
-          path: |
-            output/Slim4K-Windows-Setup.exe
-            output/Slim4K-Windows-Portable.zip
+          path: output/Slim4K-Windows-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload Windows Portable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slim4K-Windows-Portable
+          path: output/Slim4K-Windows-Portable.zip
           if-no-files-found: error
 
   # ==========================================

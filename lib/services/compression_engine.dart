@@ -80,29 +80,43 @@ class CompressionEngine {
     return name;
   }
 
+  static final Map<String, bool> _encoderCache = {};
+
+  /// Probes whether a specific video encoder actually executes on this machine's hardware
+  Future<bool> _testEncoder(String encoderName) async {
+    if (_encoderCache.containsKey(encoderName)) {
+      return _encoderCache[encoderName]!;
+    }
+    try {
+      final ffmpeg = resolveExecutable('ffmpeg');
+      final result = await Process.run(ffmpeg, [
+        '-f', 'lavfi',
+        '-i', 'color=c=black:s=64x64:d=0.04',
+        '-c:v', encoderName,
+        '-f', 'null',
+        '-',
+      ]).timeout(const Duration(seconds: 4));
+
+      final works = result.exitCode == 0;
+      _encoderCache[encoderName] = works;
+      return works;
+    } catch (_) {
+      _encoderCache[encoderName] = false;
+      return false;
+    }
+  }
+
   /// Returns the hardware acceleration encoder name for the current platform
   Future<String> getAvailableHardwareEncoder() async {
     if (Platform.isMacOS) {
-      return 'hevc_videotoolbox';
+      if (await _testEncoder('hevc_videotoolbox')) return 'hevc_videotoolbox';
     } else if (Platform.isWindows) {
-      try {
-        final ffmpeg = resolveExecutable('ffmpeg');
-        final result = await Process.run(ffmpeg, ['-encoders']);
-        final out = result.stdout.toString();
-        if (out.contains('hevc_nvenc')) return 'hevc_nvenc';
-        if (out.contains('hevc_qsv')) return 'hevc_qsv';
-        if (out.contains('hevc_amf')) return 'hevc_amf';
-      } catch (_) {}
-      return 'libx265';
+      if (await _testEncoder('hevc_nvenc')) return 'hevc_nvenc';
+      if (await _testEncoder('hevc_qsv')) return 'hevc_qsv';
+      if (await _testEncoder('hevc_amf')) return 'hevc_amf';
     } else if (Platform.isLinux) {
-      try {
-        final ffmpeg = resolveExecutable('ffmpeg');
-        final result = await Process.run(ffmpeg, ['-encoders']);
-        final out = result.stdout.toString();
-        if (out.contains('hevc_vaapi')) return 'hevc_vaapi';
-        if (out.contains('hevc_nvenc')) return 'hevc_nvenc';
-      } catch (_) {}
-      return 'libx265';
+      if (await _testEncoder('hevc_vaapi')) return 'hevc_vaapi';
+      if (await _testEncoder('hevc_nvenc')) return 'hevc_nvenc';
     } else if (Platform.isAndroid) {
       return 'hevc_mediacodec';
     }
@@ -112,16 +126,11 @@ class CompressionEngine {
   /// Returns the fastest H.264 proxy encoder
   Future<String> getAvailableProxyEncoder() async {
     if (Platform.isMacOS) {
-      return 'h264_videotoolbox';
+      if (await _testEncoder('h264_videotoolbox')) return 'h264_videotoolbox';
     } else if (Platform.isWindows) {
-      try {
-        final ffmpeg = resolveExecutable('ffmpeg');
-        final result = await Process.run(ffmpeg, ['-encoders']);
-        final out = result.stdout.toString();
-        if (out.contains('h264_nvenc')) return 'h264_nvenc';
-        if (out.contains('h264_qsv')) return 'h264_qsv';
-      } catch (_) {}
-      return 'libx264';
+      if (await _testEncoder('h264_nvenc')) return 'h264_nvenc';
+      if (await _testEncoder('h264_qsv')) return 'h264_qsv';
+      if (await _testEncoder('h264_amf')) return 'h264_amf';
     } else if (Platform.isAndroid) {
       return 'h264_mediacodec';
     }
@@ -263,7 +272,50 @@ class CompressionEngine {
     await sourceFile.copy(targetPath);
   }
 
-  /// Performs hardware-accelerated 4K HEVC compression with timecode preservation
+  Future<String> _resolveOutputPath(VideoTask task, String? customOutputPath) async {
+    if (customOutputPath != null) {
+      final outDir = Directory(p.dirname(customOutputPath));
+      if (!await outDir.exists()) {
+        await outDir.create(recursive: true);
+      }
+      return customOutputPath;
+    }
+
+    String outputDir;
+    final inputDir = Directory(p.dirname(task.inputPath));
+    bool canWriteInput = false;
+    try {
+      if (await inputDir.exists()) {
+        final testFile = File(p.join(inputDir.path, '.test_write_${DateTime.now().millisecondsSinceEpoch}'));
+        await testFile.writeAsString('test');
+        await testFile.delete();
+        canWriteInput = true;
+      }
+    } catch (_) {
+      canWriteInput = false;
+    }
+
+    if (canWriteInput) {
+      outputDir = inputDir.path;
+    } else if (Platform.isAndroid) {
+      final extDir = await getExternalStorageDirectory();
+      outputDir = extDir?.path ?? (await getApplicationDocumentsDirectory()).path;
+    } else {
+      final docDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      outputDir = docDir.path;
+    }
+    final baseName = p.basenameWithoutExtension(task.inputPath);
+    return p.join(outputDir, '${baseName}_slim.mp4');
+  }
+
+  String _resolveProxyPath(VideoTask task, String? customProxyPath) {
+    if (customProxyPath != null) return customProxyPath;
+    final outDir = p.dirname(task.outputPath ?? task.inputPath);
+    final baseName = p.basenameWithoutExtension(task.inputPath);
+    return p.join(outDir, '${baseName}_proxy.mp4');
+  }
+
+  /// Performs 4K HEVC compression with automatic hardware acceleration and resilient CPU fallback
   Future<String> compressVideo({
     required VideoTask task,
     String? customOutputPath,
@@ -276,49 +328,55 @@ class CompressionEngine {
   }) async {
     _isCancelled = false;
 
-    // Determine output path
-    String outputPath;
-    if (customOutputPath != null) {
-      outputPath = customOutputPath;
-      final outDir = Directory(p.dirname(outputPath));
-      if (!await outDir.exists()) {
-        await outDir.create(recursive: true);
-      }
-    } else {
-      String outputDir;
-      final inputDir = Directory(p.dirname(task.inputPath));
-      bool canWriteInput = false;
-      try {
-        if (await inputDir.exists()) {
-          final testFile = File(p.join(inputDir.path, '.test_write_${DateTime.now().millisecondsSinceEpoch}'));
-          await testFile.writeAsString('test');
-          await testFile.delete();
-          canWriteInput = true;
+    final outputPath = await _resolveOutputPath(task, customOutputPath);
+    final preferredEncoder = await getAvailableHardwareEncoder();
+
+    try {
+      return await _executeCompression(
+        task: task,
+        outputPath: outputPath,
+        encoder: preferredEncoder,
+        onProgress: onProgress,
+      );
+    } catch (e) {
+      if (_isCancelled) rethrow;
+
+      // If hardware encoder failed on this machine (e.g. driver mismatch, GPU memory),
+      // seamlessly fall back to universal CPU libx265 so user compression always succeeds!
+      if (preferredEncoder != 'libx265') {
+        debugPrint('Hardware encoder ($preferredEncoder) failed: $e. Retrying with universal CPU libx265...');
+        final partial = File(outputPath);
+        if (await partial.exists()) {
+          try { await partial.delete(); } catch (_) {}
         }
-      } catch (_) {
-        canWriteInput = false;
+        return await _executeCompression(
+          task: task,
+          outputPath: outputPath,
+          encoder: 'libx265',
+          onProgress: onProgress,
+        );
       }
-
-      if (canWriteInput) {
-        outputDir = inputDir.path;
-      } else if (Platform.isAndroid) {
-        final extDir = await getExternalStorageDirectory();
-        outputDir = extDir?.path ?? (await getApplicationDocumentsDirectory()).path;
-      } else {
-        final docDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
-        outputDir = docDir.path;
-      }
-      final baseName = p.basenameWithoutExtension(task.inputPath);
-      outputPath = p.join(outputDir, '${baseName}_slim.mp4');
+      rethrow;
     }
+  }
 
+  Future<String> _executeCompression({
+    required VideoTask task,
+    required String outputPath,
+    required String encoder,
+    required void Function(
+      double progress,
+      double currentFps,
+      double speedMultiplier,
+      Duration? eta,
+    ) onProgress,
+  }) async {
     // Remove old output if exists
     final oldFile = File(outputPath);
     if (await oldFile.exists()) {
       await oldFile.delete();
     }
 
-    final encoder = await getAvailableHardwareEncoder();
     final bitrateK = task.targetBitrateKbps;
 
     // Build FFmpeg command arguments
@@ -328,7 +386,6 @@ class CompressionEngine {
       '-map', '0:v:0',
       '-map', '0:a?',
       '-map_metadata', '0',
-      '-copyts',
     ];
 
     // Hardware encoder arguments
@@ -351,6 +408,20 @@ class CompressionEngine {
         '-rc', 'vbr',
         '-tag:v', 'hvc1',
       ]);
+    } else if (encoder == 'hevc_qsv') {
+      args.addAll([
+        '-c:v', 'hevc_qsv',
+        '-b:v', '${bitrateK}k',
+        '-preset', 'medium',
+        '-tag:v', 'hvc1',
+      ]);
+    } else if (encoder == 'hevc_amf') {
+      args.addAll([
+        '-c:v', 'hevc_amf',
+        '-b:v', '${bitrateK}k',
+        '-quality', 'balanced',
+        '-tag:v', 'hvc1',
+      ]);
     } else if (encoder == 'hevc_mediacodec') {
       args.addAll([
         '-c:v', 'hevc_mediacodec',
@@ -371,7 +442,7 @@ class CompressionEngine {
     if (task.preserveOriginalAudio) {
       args.addAll([
         '-c:a', 'aac',
-        '-b:a', '320k', // Studio Broadcast 320 kbps multi-channel transparent
+        '-b:a', '320k',
       ]);
     } else {
       args.addAll([
@@ -386,7 +457,7 @@ class CompressionEngine {
     ]);
 
     final ffmpeg = resolveExecutable('ffmpeg');
-    debugPrint('Executing FFmpeg: $ffmpeg ${args.join(' ')}');
+    debugPrint('Executing FFmpeg ($encoder): $ffmpeg ${args.join(' ')}');
 
     final process = await Process.start(ffmpeg, args);
     _activeProcess = process;
@@ -397,8 +468,13 @@ class CompressionEngine {
     final fpsRegex = RegExp(r'fps=\s*(\d+\.?\d*)');
     final speedRegex = RegExp(r'speed=\s*(\d+\.?\d*)x');
 
+    final List<String> recentStderr = [];
+
     process.stderr.transform(utf8.decoder).listen((line) {
       if (_isCancelled) return;
+
+      recentStderr.add(line);
+      if (recentStderr.length > 30) recentStderr.removeAt(0);
 
       double? currentSec;
       final timeMatch = timeRegex.firstMatch(line);
@@ -446,7 +522,8 @@ class CompressionEngine {
     }
 
     if (exitCode != 0) {
-      throw Exception('FFmpeg failed with exit code $exitCode');
+      final errorContext = recentStderr.join('\n').trim();
+      throw Exception('FFmpeg failed with exit code $exitCode ($encoder):\n$errorContext');
     }
 
     // Verify output file exists and has size
@@ -458,28 +535,51 @@ class CompressionEngine {
     return outputPath;
   }
 
-  /// Generates a lightweight 1080p editing proxy alongside the archive
+  /// Generates a lightweight 1080p editing proxy alongside the archive with resilient fallback
   Future<String> generateProxyVideo({
     required VideoTask task,
     String? customProxyPath,
   }) async {
     _isCancelled = false;
 
-    String proxyPath;
-    if (customProxyPath != null) {
-      proxyPath = customProxyPath;
-    } else {
-      final outDir = p.dirname(task.outputPath ?? task.inputPath);
-      final baseName = p.basenameWithoutExtension(task.inputPath);
-      proxyPath = p.join(outDir, '${baseName}_proxy.mp4');
-    }
+    final proxyPath = _resolveProxyPath(task, customProxyPath);
+    final preferredEncoder = await getAvailableProxyEncoder();
 
+    try {
+      return await _executeProxyGeneration(
+        task: task,
+        proxyPath: proxyPath,
+        proxyEncoder: preferredEncoder,
+      );
+    } catch (e) {
+      if (_isCancelled) rethrow;
+
+      if (preferredEncoder != 'libx264') {
+        debugPrint('Proxy encoder ($preferredEncoder) failed: $e. Retrying with libx264...');
+        final partial = File(proxyPath);
+        if (await partial.exists()) {
+          try { await partial.delete(); } catch (_) {}
+        }
+        return await _executeProxyGeneration(
+          task: task,
+          proxyPath: proxyPath,
+          proxyEncoder: 'libx264',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<String> _executeProxyGeneration({
+    required VideoTask task,
+    required String proxyPath,
+    required String proxyEncoder,
+  }) async {
     final oldFile = File(proxyPath);
     if (await oldFile.exists()) {
       await oldFile.delete();
     }
 
-    final proxyEncoder = await getAvailableProxyEncoder();
     final ffmpeg = resolveExecutable('ffmpeg');
 
     final List<String> args = [
@@ -489,22 +589,44 @@ class CompressionEngine {
       '-map', '0:v:0',
       '-map', '0:a?',
       '-map_metadata', '0',
-      '-c:v', proxyEncoder,
-      '-b:v', '2500k',
+    ];
+
+    if (proxyEncoder == 'h264_videotoolbox') {
+      args.addAll(['-c:v', 'h264_videotoolbox', '-b:v', '2500k']);
+    } else if (proxyEncoder == 'h264_nvenc') {
+      args.addAll(['-c:v', 'h264_nvenc', '-b:v', '2500k', '-preset', 'p4']);
+    } else if (proxyEncoder == 'h264_qsv') {
+      args.addAll(['-c:v', 'h264_qsv', '-b:v', '2500k']);
+    } else if (proxyEncoder == 'h264_amf') {
+      args.addAll(['-c:v', 'h264_amf', '-b:v', '2500k']);
+    } else {
+      args.addAll(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k']);
+    }
+
+    args.addAll([
       '-c:a', 'aac',
       '-b:a', '128k',
       '-movflags', '+faststart',
       proxyPath,
-    ];
+    ]);
 
-    debugPrint('Generating Proxy: $ffmpeg ${args.join(' ')}');
+    debugPrint('Generating Proxy ($proxyEncoder): $ffmpeg ${args.join(' ')}');
     final process = await Process.start(ffmpeg, args);
     _activeProcess = process;
+
+    final List<String> recentStderr = [];
+    process.stderr.transform(utf8.decoder).listen((line) {
+      if (_isCancelled) return;
+      recentStderr.add(line);
+      if (recentStderr.length > 20) recentStderr.removeAt(0);
+    });
+
     final exitCode = await process.exitCode;
     _activeProcess = null;
 
     if (exitCode != 0 || !await File(proxyPath).exists()) {
-      throw Exception('Failed to generate 1080p proxy file');
+      final err = recentStderr.join('\n').trim();
+      throw Exception('Failed to generate 1080p proxy file ($proxyEncoder):\n$err');
     }
 
     return proxyPath;
