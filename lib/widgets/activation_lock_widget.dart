@@ -21,12 +21,10 @@ class ActivationLockWidget extends StatefulWidget {
 class _ActivationLockWidgetState extends State<ActivationLockWidget> {
   final ActivationService _activationService = ActivationService();
   bool _isChecking = false;
-  String? _statusFeedback;
 
   Future<void> _checkStatus() async {
     setState(() {
       _isChecking = true;
-      _statusFeedback = null;
     });
 
     try {
@@ -35,17 +33,17 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
           (updated.status == ActivationStatus.active ||
               updated.status == ActivationStatus.offlineGrace)) {
         widget.onReactivated();
-      } else {
-        setState(() {
-          _statusFeedback = updated.status == ActivationStatus.deactivatedExpired
-              ? 'Still disconnected or expired (>15 days). Please activate "is_active: true" on Firebase.'
-              : 'Still marked inactive (is_active: false) on Firebase Console.';
-        });
       }
     } catch (e) {
-      setState(() {
-        _statusFeedback = 'Connection failed: Please check internet connection.';
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connection failed: Please check internet connection.'),
+            backgroundColor: Colors.redAccent,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isChecking = false);
@@ -186,24 +184,6 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
                     ),
                   ),
 
-                  if (_statusFeedback != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        _statusFeedback!,
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ],
-
                   const SizedBox(height: 24),
 
                   // Reactivate Button
@@ -228,30 +208,6 @@ class _ActivationLockWidgetState extends State<ActivationLockWidget> {
                         _isChecking ? 'Checking Firestore...' : 'Check Status & Re-activate',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Firebase Console Admin Hint
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1F242C),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Icon(Icons.admin_panel_settings_outlined, color: Colors.white54, size: 18),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Admin Step: Open Firebase Console > Firestore > apps/slim4k/clients > [client_id] and set is_active: true, then click Re-activate above.',
-                            style: TextStyle(color: Colors.white54, fontSize: 11, height: 1.4),
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ],

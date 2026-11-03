@@ -12,6 +12,7 @@ import '../services/keychain_service.dart';
 import '../services/quota_service.dart';
 import '../widgets/activation_lock_widget.dart';
 import '../widgets/comparison_player.dart';
+import '../widgets/upi_payment_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -294,53 +295,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showQuotaExceededDialog() {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF161B22),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Row(
-          children: [
-            Icon(Icons.lock_clock, color: Colors.amberAccent),
-            SizedBox(width: 10),
-            Text('10 TB Annual Quota Reached', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'You have reached your 10.0 TB annual video slimming license quota (${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB processed).',
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.04),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('To upgrade or reset your license quota, please contact:', style: TextStyle(color: Colors.white60, fontSize: 11)),
-                  SizedBox(height: 6),
-                  Text('🏢 Neertech Technologies', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                  SizedBox(height: 4),
-                  Text('📞 +91 74588 29500', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
-                  Text('✉️ techsupport@neertechtechnologies.in', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
-                  Text('🌐 https://neertechtechnologies.in', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF00E5FF))),
-          ),
-        ],
+      barrierDismissible: true,
+      builder: (ctx) => UpiPaymentDialog(
+        isTrialExpired: _quotaService.isTrialMode,
       ),
     );
   }
@@ -683,28 +640,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _quotaStatusBadge() {
+    final isTrial = _quotaService.isTrialMode;
     final isExceeded = _quotaService.isQuotaExceeded;
     final isNearLimit = _quotaService.usedPercentage > 85;
     final color = isExceeded
         ? Colors.redAccent
-        : (isNearLimit ? Colors.amberAccent : const Color(0xFF00E5FF));
+        : (isTrial ? const Color(0xFFFFB300) : (isNearLimit ? Colors.amberAccent : const Color(0xFF00E5FF)));
 
     return Tooltip(
-      message: '10 TB Annual Slimmer License: ${_quotaService.formattedUsage} (${_quotaService.formattedRemaining})',
+      message: isTrial
+          ? 'Free Trial: ${_quotaService.formattedUsage} (Click to Scan UPI QR & Activate 10 TB)'
+          : '10 TB Annual License: ${_quotaService.formattedUsage} (${_quotaService.formattedRemaining})',
       child: InkWell(
         onTap: () {
-          if (isExceeded) {
-            _showQuotaExceededDialog();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '10 TB Annual Quota: ${_quotaService.formattedUsage} • ${_quotaService.formattedRemaining}',
-                ),
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
+          _showQuotaExceededDialog();
         },
         borderRadius: BorderRadius.circular(20),
         child: Container(
@@ -719,19 +668,41 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                isExceeded ? Icons.lock_clock : Icons.pie_chart_outline,
+                isExceeded
+                    ? Icons.lock_clock
+                    : (isTrial ? Icons.star_border_rounded : Icons.pie_chart_outline),
                 size: 13,
                 color: color,
               ),
               const SizedBox(width: 5),
               Text(
-                '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB',
+                isTrial
+                    ? '${_quotaService.trialUsedGb.toStringAsFixed(2)} / 2.0 GB (Trial)'
+                    : '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB',
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.w800,
                   fontSize: 11,
                 ),
               ),
+              if (isTrial) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E5FF).withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'BUY 10 TB',
+                    style: TextStyle(
+                      color: Color(0xFF00E5FF),
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

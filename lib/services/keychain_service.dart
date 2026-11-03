@@ -22,6 +22,10 @@ class KeychainService {
   static const String keyQuotaLimitBytes = 'slim4k_quota_limit_bytes';
   static const String keyFirstSlimmedAt = 'slim4k_first_slimmed_at';
   static const String keyLastSlimmedAt = 'slim4k_last_slimmed_at';
+  static const String keyIsLicenseActivated = 'slim4k_is_license_activated';
+  static const String keyLicenseKey = 'slim4k_license_key';
+  static const String keyLicenseActivatedAt = 'slim4k_license_activated_at';
+  static const String keyLicenseExpiresAt = 'slim4k_license_expires_at';
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage(
     mOptions: MacOsOptions(
@@ -150,6 +154,23 @@ class KeychainService {
   }
 
   Future<void> setLastSlimmedAt(DateTime dt) => write(keyLastSlimmedAt, dt.toIso8601String());
+
+  Future<bool> isLicenseActivated() async {
+    final str = await read(keyIsLicenseActivated);
+    return str == 'true';
+  }
+
+  Future<void> setLicenseActivated(bool activated) => write(keyIsLicenseActivated, activated ? 'true' : 'false');
+
+  Future<String?> getLicenseKey() => read(keyLicenseKey);
+  Future<void> setLicenseKey(String key) => write(keyLicenseKey, key);
+
+  Future<DateTime?> getLicenseExpiresAt() async {
+    final str = await read(keyLicenseExpiresAt);
+    return str != null ? DateTime.tryParse(str) : null;
+  }
+
+  Future<void> setLicenseExpiresAt(DateTime dt) => write(keyLicenseExpiresAt, dt.toIso8601String());
 
   // --- Native macOS /usr/bin/security CLI Integration ---
 

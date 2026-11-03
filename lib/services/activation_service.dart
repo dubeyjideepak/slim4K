@@ -195,13 +195,6 @@ class ActivationService {
         final fields = doc['fields'] as Map<String, dynamic>? ?? {};
 
         final bool remoteIsActive = fields['is_active']?['booleanValue'] ?? true;
-        final String? remoteHeartbeatStr = fields['last_heartbeat']?['stringValue'] ??
-            fields['last_heartbeat']?['timestampValue'];
-        final DateTime remoteHeartbeat = remoteHeartbeatStr != null
-            ? (DateTime.tryParse(remoteHeartbeatStr) ?? activation.lastHeartbeat)
-            : activation.lastHeartbeat;
-
-        final daysDisconnected = DateTime.now().difference(remoteHeartbeat).inDays;
 
         // RULE 1: Admin deactivated directly in Firebase Console
         if (!remoteIsActive) {
@@ -209,22 +202,12 @@ class ActivationService {
           activation.status = ActivationStatus.deactivatedAdmin;
           activation.deactivationReason = 'Deactivated by Administrator in Firebase Console';
           await _saveLocalActivation(activation);
+          _currentActivation = activation;
           client.close();
           return activation;
         }
 
-        // RULE 2: If disconnected for 15+ days -> Deactivate until activated from Firebase
-        if (daysDisconnected >= 15) {
-          activation.isActive = false;
-          activation.status = ActivationStatus.deactivatedExpired;
-          activation.deactivationReason = 'Disconnected for $daysDisconnected days (15-day limit exceeded)';
-          await _updateFirestoreStatus(client, activation.clientId, isActive: false, reason: 'offline_exceeded_15_days');
-          await _saveLocalActivation(activation);
-          client.close();
-          return activation;
-        }
-
-        // RULE 3: Client is active -> update daily heartbeat to Firestore
+        // RULE 2: Client is active on Firestore -> update daily heartbeat to Firestore
         final now = DateTime.now();
         await _sendHeartbeatToFirestore(client, activation.clientId, now);
 
@@ -233,6 +216,7 @@ class ActivationService {
         activation.status = ActivationStatus.active;
         activation.deactivationReason = null;
         await _saveLocalActivation(activation);
+        _currentActivation = activation;
 
         client.close();
         return activation;
@@ -327,39 +311,6 @@ class ActivationService {
 
     final uri2 = Uri.parse(
       'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/app_activations/${appId}_$clientId?updateMask.fieldPaths=last_heartbeat&key=$apiKey',
-    );
-    final req2 = await client.patchUrl(uri2);
-    req2.headers.contentType = ContentType.json;
-    req2.write(jsonEncode(payload));
-    final resp2 = await req2.close();
-    await resp2.drain();
-  }
-
-  /// Updates is_active and deactivation reason on Firestore
-  Future<void> _updateFirestoreStatus(
-    HttpClient client,
-    String clientId, {
-    required bool isActive,
-    String? reason,
-  }) async {
-    final payload = {
-      'fields': {
-        'is_active': {'booleanValue': isActive},
-        'deactivation_reason': {'stringValue': reason ?? ''},
-      }
-    };
-
-    final uri1 = Uri.parse(
-      'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/clients/$clientId?updateMask.fieldPaths=is_active&updateMask.fieldPaths=deactivation_reason&key=$apiKey',
-    );
-    final req1 = await client.patchUrl(uri1);
-    req1.headers.contentType = ContentType.json;
-    req1.write(jsonEncode(payload));
-    final resp1 = await req1.close();
-    await resp1.drain();
-
-    final uri2 = Uri.parse(
-      'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/app_activations/${appId}_$clientId?updateMask.fieldPaths=is_active&updateMask.fieldPaths=deactivation_reason&key=$apiKey',
     );
     final req2 = await client.patchUrl(uri2);
     req2.headers.contentType = ContentType.json;

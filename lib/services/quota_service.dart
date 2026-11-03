@@ -30,6 +30,11 @@ class QuotaService extends ChangeNotifier {
   static const int defaultQuotaBytes = 10 * 1024 * 1024 * 1024 * 1024; // 10,995,116,277,760
   static const double defaultQuotaTb = 10.0;
 
+  /// 2.0 GB Free Trial Limit for unactivated users (can be optionally overridden by Firestore `trial_limit_bytes`)
+  static const int trialLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
+  static const double defaultTrialLimitGb = 2.0;
+
+  int _trialLimitBytes = trialLimitBytes;
   int _totalBytesSlimmed = 0;
   int _totalBytesSaved = 0;
   int _totalFilesSlimmed = 0;
@@ -39,15 +44,31 @@ class QuotaService extends ChangeNotifier {
   bool _isInitialized = false;
   bool _isSyncing = false;
 
+  bool _isLicenseActivated = false;
+  String? _licenseKey;
+  DateTime? _licenseExpiresAt;
+
   // Getters
   int get totalBytesSlimmed => _totalBytesSlimmed;
   int get totalBytesSaved => _totalBytesSaved;
   int get totalFilesSlimmed => _totalFilesSlimmed;
   int get quotaLimitBytes => _quotaLimitBytes;
+  int get currentTrialLimitBytes => _trialLimitBytes;
   DateTime? get firstSlimmedAt => _firstSlimmedAt;
   DateTime? get lastSlimmedAt => _lastSlimmedAt;
   bool get isInitialized => _isInitialized;
   bool get isSyncing => _isSyncing;
+
+  bool get isLicenseActivated => _isLicenseActivated;
+  bool get isTrialMode => !_isLicenseActivated;
+  bool get isTrialExceeded => isTrialMode && (_totalBytesSlimmed >= _trialLimitBytes);
+  bool get isLicenseExpired => _isLicenseActivated && _licenseExpiresAt != null && DateTime.now().isAfter(_licenseExpiresAt!);
+  String? get licenseKey => _licenseKey;
+  DateTime? get licenseExpiresAt => _licenseExpiresAt;
+
+  double get trialLimitGb => _trialLimitBytes / (1024.0 * 1024.0 * 1024.0);
+  double get trialUsedGb => _totalBytesSlimmed / (1024.0 * 1024.0 * 1024.0);
+  double get trialRemainingGb => max(0.0, trialLimitGb - trialUsedGb);
 
   // Calculated Metric Getters
   double get totalTbSlimmed => _totalBytesSlimmed / 1099511627776.0;
@@ -58,16 +79,25 @@ class QuotaService extends ChangeNotifier {
 
   /// Percentage of quota consumed (0.0 to 100.0)
   double get usedPercentage {
+    if (isTrialMode) {
+      return (_totalBytesSlimmed / _trialLimitBytes * 100.0).clamp(0.0, 100.0);
+    }
     if (_quotaLimitBytes <= 0) return 0.0;
     return (_totalBytesSlimmed / _quotaLimitBytes * 100.0).clamp(0.0, 100.0);
   }
 
-  /// Whether the 10 TB annual quota has been reached
-  bool get isQuotaExceeded => _totalBytesSlimmed >= _quotaLimitBytes;
+  /// Whether the quota has been reached (2 GB trial limit or 10 TB annual limit or expired)
+  bool get isQuotaExceeded => isTrialExceeded || isLicenseExpired || (_isLicenseActivated && _totalBytesSlimmed >= _quotaLimitBytes);
 
   /// Formatted strings for display
-  String get formattedUsage => '${totalTbSlimmed.toStringAsFixed(2)} TB / ${quotaLimitTb.toStringAsFixed(1)} TB';
-  String get formattedRemaining => '${remainingTb.toStringAsFixed(2)} TB remaining';
+  String get formattedUsage => isTrialMode
+      ? '${trialUsedGb.toStringAsFixed(2)} GB / ${trialLimitGb.toStringAsFixed(1)} GB (Trial)'
+      : '${totalTbSlimmed.toStringAsFixed(2)} TB / ${quotaLimitTb.toStringAsFixed(1)} TB';
+
+  String get formattedRemaining => isTrialMode
+      ? '${trialRemainingGb.toStringAsFixed(2)} GB Trial remaining'
+      : '${remainingTb.toStringAsFixed(2)} TB remaining';
+
   String get formattedPercentage => '${usedPercentage.toStringAsFixed(1)}%';
 
   Future<File> _getLocalCacheFile() async {
@@ -130,11 +160,41 @@ class QuotaService extends ChangeNotifier {
     _firstSlimmedAt = kcFirst ?? localFirst;
     _lastSlimmedAt = kcLast ?? localLast;
 
+    // Load license state
+    final kcActivated = await _keychain.isLicenseActivated();
+    final kcKey = await _keychain.getLicenseKey();
+    final kcExpires = await _keychain.getLicenseExpiresAt();
+    _isLicenseActivated = kcActivated;
+    _licenseKey = kcKey;
+    _licenseExpiresAt = kcExpires;
+
     _isInitialized = true;
     notifyListeners();
 
     // 3. Online sync with Firestore
     await syncWithFirestore(clientId: clientId);
+  }
+
+  /// Activates a verified license key and unlocks 10 TB annual quota
+  Future<void> activateLicense({
+    required String licenseKey,
+    int validityDays = 365,
+    int? quotaBytes,
+  }) async {
+    _isLicenseActivated = true;
+    _licenseKey = licenseKey;
+    _licenseExpiresAt = DateTime.now().add(Duration(days: validityDays));
+    if (quotaBytes != null && quotaBytes > 0) {
+      _quotaLimitBytes = quotaBytes;
+    }
+    await _keychain.setLicenseActivated(true);
+    await _keychain.setLicenseKey(licenseKey);
+    await _keychain.setLicenseExpiresAt(_licenseExpiresAt!);
+    if (quotaBytes != null && quotaBytes > 0) {
+      await _keychain.setQuotaLimitBytes(quotaBytes);
+    }
+    await _saveLocalCache();
+    notifyListeners();
   }
 
   /// Records a successfully slimmed video
@@ -182,6 +242,9 @@ class QuotaService extends ChangeNotifier {
         'bytes_saved': _totalBytesSaved,
         'files_count': _totalFilesSlimmed,
         'quota_limit_bytes': _quotaLimitBytes,
+        'is_license_activated': _isLicenseActivated,
+        'license_key': _licenseKey,
+        'license_expires_at': _licenseExpiresAt?.toIso8601String(),
         'first_slimmed_at': _firstSlimmedAt?.toIso8601String(),
         'last_slimmed_at': _lastSlimmedAt?.toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -276,6 +339,30 @@ class QuotaService extends ChangeNotifier {
         await _keychain.setFilesSlimmed(_totalFilesSlimmed);
         await _keychain.setQuotaLimitBytes(_quotaLimitBytes);
         await _saveLocalCache();
+
+        // Reconcile trial limit if overridden from Firestore
+        final remoteTrial = fields['trial_limit_bytes'];
+        if (remoteTrial != null) {
+          final parsedTrial = int.tryParse(remoteTrial['integerValue']?.toString() ?? '');
+          if (parsedTrial != null && parsedTrial > 0) {
+            _trialLimitBytes = parsedTrial;
+          }
+        }
+
+        // Reconcile license activation status from Firestore
+        final remoteLicenseActivated = fields['is_license_activated']?['booleanValue'] == true;
+        final remotePaymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
+        if (remoteLicenseActivated || remotePaymentStatus == 'PAID' || remotePaymentStatus == 'SUCCESS') {
+          if (!_isLicenseActivated) {
+            final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+            final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'AUTO-$clientId';
+            await activateLicense(
+              licenseKey: internalLicenseId,
+              validityDays: validityDays,
+              quotaBytes: reconciledQuota,
+            );
+          }
+        }
 
         // Push update to Firestore if local had higher counts
         if (changedRemotely || remoteBytes == 0) {
