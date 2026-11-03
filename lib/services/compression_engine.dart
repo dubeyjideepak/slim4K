@@ -39,7 +39,35 @@ class CompressionEngine {
   };
 
   static String resolveExecutable(String name) {
-    if (Platform.isWindows) return name;
+    final exeName = Platform.isWindows ? '$name.exe' : name;
+
+    // 1. Check folder where the running app binary is located (e.g. C:\Program Files\Slim4K\)
+    try {
+      final appDir = p.dirname(Platform.resolvedExecutable);
+      final inAppDir = p.join(appDir, exeName);
+      if (File(inAppDir).existsSync()) return inAppDir;
+
+      final inTools = p.join(appDir, 'tools', exeName);
+      if (File(inTools).existsSync()) return inTools;
+
+      final inBin = p.join(appDir, 'bin', exeName);
+      if (File(inBin).existsSync()) return inBin;
+    } catch (_) {}
+
+    // 2. Candidate system paths on Windows
+    if (Platform.isWindows) {
+      final winCandidates = [
+        r'C:\ffmpeg\bin\' + exeName,
+        r'C:\Program Files\ffmpeg\bin\' + exeName,
+        r'C:\ProgramData\chocolatey\bin\' + exeName,
+      ];
+      for (final c in winCandidates) {
+        if (File(c).existsSync()) return c;
+      }
+      return exeName;
+    }
+
+    // 3. Candidate Unix / macOS paths
     final candidates = [
       '/opt/homebrew/bin/$name',
       '/usr/local/bin/$name',

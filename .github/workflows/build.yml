@@ -87,6 +87,17 @@ jobs:
       - name: Build Windows Release
         run: flutter build windows --release
 
+      - name: Bundle Standalone FFmpeg & FFprobe Binaries
+        shell: pwsh
+        run: |
+          Write-Host "Downloading standalone official FFmpeg & FFprobe binaries..."
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_extracted"
+          $binFolder = Get-ChildItem -Path "ffmpeg_extracted" -Filter "bin" -Recurse -Directory | Select-Object -First 1
+          Copy-Item "$($binFolder.FullName)\ffmpeg.exe" "build\windows\x64\runner\Release\"
+          Copy-Item "$($binFolder.FullName)\ffprobe.exe" "build\windows\x64\runner\Release\"
+          Write-Host "FFmpeg & FFprobe successfully bundled into Release payload."
+
       - name: Create Portable Zip (Executable + Companion DLLs)
         shell: pwsh
         run: |
