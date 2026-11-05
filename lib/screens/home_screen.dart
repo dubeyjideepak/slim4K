@@ -81,71 +81,173 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _checkAppUpdates() async {
+  Future<void> _checkAppUpdates({bool showFeedbackIfLatest = false}) async {
     try {
       final update = await AppUpdateService().checkForUpdates();
-      if (mounted && update != null && update.isUpdateAvailable) {
-        _showUpdateDialog(update);
+      if (mounted) {
+        if (update != null && update.isUpdateAvailable) {
+          _showUpdateDialog(update);
+        } else if (showFeedbackIfLatest) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Slim4K is already up to date (v1.0.0)!'),
+              backgroundColor: Color(0xFF00E676),
+            ),
+          );
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted && showFeedbackIfLatest) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not reach update server: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
   }
 
   void _showUpdateDialog(AppUpdateInfo update) {
+    bool isDownloading = false;
+    double downloadProgress = 0.0;
+    String statusText = '';
+    int receivedBytes = 0;
+    int totalBytes = 0;
+
     showDialog(
       context: context,
       barrierDismissible: !update.isMandatory,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF161B22),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.system_update_alt, color: Color(0xFF00E5FF), size: 22),
-            const SizedBox(width: 8),
-            Text('Update Available (v${update.latestVersion})', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('A new version of Slim4K (v${update.latestVersion}) is available. Current version: v${update.currentVersion}.',
-              style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0D1117),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF30363D)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF161B22),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.system_update_alt, color: Color(0xFF00E5FF), size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'Update Available (v${update.latestVersion})',
+                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              child: Text(
-                update.releaseNotes,
-                style: const TextStyle(color: Colors.white60, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          if (!update.isMandatory)
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Remind Me Later', style: TextStyle(color: Colors.white54)),
-            ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E5FF),
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () {
-              AppUpdateService().launchUpdateDownload(update.downloadUrl);
-              Navigator.pop(ctx);
-            },
-            icon: const Icon(Icons.download, size: 16),
-            label: const Text('Download Update', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
           ),
-        ],
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'A new version of Slim4K (v${update.latestVersion}) is available. Current installed: v${update.currentVersion}.',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D1117),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF30363D)),
+                  ),
+                  child: Text(
+                    update.releaseNotes,
+                    style: const TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                ),
+                if (isDownloading) ...[
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: downloadProgress > 0 ? downloadProgress : null,
+                      minHeight: 8,
+                      backgroundColor: Colors.white10,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        statusText,
+                        style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                      if (totalBytes > 0)
+                        Text(
+                          '${(downloadProgress * 100).toStringAsFixed(0)}% (${(receivedBytes / (1024 * 1024)).toStringAsFixed(1)} / ${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB)',
+                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: isDownloading
+              ? []
+              : [
+                  if (!update.isMandatory)
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Remind Me Later', style: TextStyle(color: Colors.white54)),
+                    ),
+                  TextButton.icon(
+                    onPressed: () {
+                      AppUpdateService().launchUpdateDownload(update.downloadUrl);
+                      Navigator.pop(ctx);
+                    },
+                    icon: const Icon(Icons.open_in_browser, size: 14, color: Colors.white70),
+                    label: const Text('Download in Browser', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00E5FF),
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    onPressed: () async {
+                      setDialogState(() {
+                        isDownloading = true;
+                        statusText = 'Starting download...';
+                      });
+                      try {
+                        await AppUpdateService().downloadAndInstallUpdate(
+                          downloadUrl: update.downloadUrl,
+                          onProgress: (p, rec, tot) {
+                            setDialogState(() {
+                              downloadProgress = p;
+                              receivedBytes = rec;
+                              totalBytes = tot;
+                            });
+                          },
+                          onStatus: (st) {
+                            setDialogState(() => statusText = st);
+                          },
+                        );
+                      } catch (e) {
+                        setDialogState(() {
+                          isDownloading = false;
+                          statusText = 'Update failed: $e';
+                        });
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('In-app update error: $e. You can download from website.'),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.system_update_rounded, size: 16),
+                    label: const Text('Update Now (In-App)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  ),
+                ],
+        ),
       ),
     );
   }
@@ -1207,6 +1309,24 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                     icon: const Icon(Icons.receipt_long, size: 16),
                     label: const Text('View Official Payment Receipt & Invoice', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 38,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF00E5FF),
+                      side: const BorderSide(color: Color(0xFF00E5FF)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      _checkAppUpdates(showFeedbackIfLatest: true);
+                    },
+                    icon: const Icon(Icons.system_update_rounded, size: 16),
+                    label: const Text('Check for Software Updates (v1.0.0)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],

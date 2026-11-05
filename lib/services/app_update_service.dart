@@ -80,7 +80,7 @@ class AppUpdateService {
   void launchUpdateDownload(String url) {
     try {
       if (!kIsWeb && Platform.isWindows) {
-        Process.run('cmd', ['/c', 'start', '', url]);
+        Process.run('powershell', ['-NoProfile', '-Command', 'Start-Process', '"$url"']);
       } else if (!kIsWeb && Platform.isMacOS) {
         Process.run('open', [url]);
       } else if (!kIsWeb && Platform.isLinux) {
@@ -88,6 +88,117 @@ class AppUpdateService {
       }
     } catch (e) {
       debugPrint('Failed to launch download URL: $e');
+    }
+  }
+
+  /// Downloads and launches the update installer directly inside the app
+  Future<void> downloadAndInstallUpdate({
+    required String downloadUrl,
+    required void Function(double progress, int receivedBytes, int totalBytes) onProgress,
+    required void Function(String status) onStatus,
+  }) async {
+    try {
+      onStatus('Connecting to update server...');
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 15);
+
+      // Prefer direct .exe download if url is .zip and .exe is available
+      var targetUrl = downloadUrl;
+      if (targetUrl.endsWith('.zip')) {
+        targetUrl = targetUrl.replaceAll('.zip', '.exe');
+      }
+
+      var uri = Uri.parse(targetUrl);
+      var req = await client.getUrl(uri);
+      var resp = await req.close();
+
+      // If .exe is not found, fallback to original URL (.zip)
+      if (resp.statusCode != 200 && targetUrl != downloadUrl) {
+        uri = Uri.parse(downloadUrl);
+        req = await client.getUrl(uri);
+        resp = await req.close();
+      }
+
+      if (resp.statusCode != 200) {
+        throw Exception('Download failed with HTTP ${resp.statusCode}');
+      }
+
+      final contentLength = resp.contentLength;
+      final tempDir = Directory.systemTemp;
+      final isZip = uri.path.toLowerCase().endsWith('.zip');
+      final fileName = isZip ? 'Slim4K-Setup.zip' : 'Slim4K-Setup.exe';
+      final targetFile = File('${tempDir.path}/$fileName');
+
+      if (await targetFile.exists()) {
+        try {
+          await targetFile.delete();
+        } catch (_) {}
+      }
+
+      final sink = targetFile.openWrite();
+      int received = 0;
+
+      onStatus('Downloading Slim4K installer...');
+      await for (final chunk in resp) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (contentLength > 0) {
+          final progress = (received / contentLength).clamp(0.0, 1.0);
+          onProgress(progress, received, contentLength);
+        }
+      }
+      await sink.flush();
+      await sink.close();
+      client.close();
+
+      onStatus('Download complete! Preparing installer...');
+
+      File installerToRun = targetFile;
+
+      if (isZip && !kIsWeb && Platform.isWindows) {
+        onStatus('Extracting installer package...');
+        final extractDir = '${tempDir.path}\\Slim4K-Extracted-Update';
+        final dir = Directory(extractDir);
+        if (await dir.exists()) {
+          try {
+            await dir.delete(recursive: true);
+          } catch (_) {}
+        }
+        await dir.create();
+
+        await Process.run('powershell', [
+          '-NoProfile',
+          '-Command',
+          'Expand-Archive -Path "${targetFile.path}" -DestinationPath "$extractDir" -Force'
+        ]);
+
+        final files = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.exe')).toList();
+        if (files.isNotEmpty) {
+          installerToRun = files.first;
+        }
+      }
+
+      onStatus('Launching update installer...');
+      await Future.delayed(const Duration(milliseconds: 600));
+
+      if (!kIsWeb && Platform.isWindows) {
+        // Launch Inno Setup installer detached, and close Slim4K to allow file overwrites
+        await Process.start(
+          installerToRun.path,
+          [],
+          mode: ProcessStartMode.detached,
+        );
+        exit(0);
+      } else if (!kIsWeb && Platform.isMacOS) {
+        await Process.run('open', [installerToRun.path]);
+        exit(0);
+      } else if (!kIsWeb && Platform.isLinux) {
+        await Process.run('xdg-open', [installerToRun.path]);
+        exit(0);
+      }
+    } catch (e) {
+      debugPrint('Direct update installation failed: $e');
+      rethrow;
     }
   }
 
