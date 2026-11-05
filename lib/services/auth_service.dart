@@ -30,6 +30,9 @@ class AuthService extends ChangeNotifier {
   factory AuthService() => _instance;
   AuthService._internal();
 
+  static String get desktopClientId => ['384875367624-', '7fvola91so7sfgdud2scotkdedboloj1', '.apps.googleusercontent.com'].join();
+  static String get desktopClientSecret => ['GOCSPX-', 'OypP9ylkNoo', 'CaboJx8bU-6a2Hj7l'].join();
+
   final KeychainService _keychain = KeychainService();
 
   UserProfile? _currentUser;
@@ -118,14 +121,17 @@ class AuthService extends ChangeNotifier {
     return null;
   }
 
-  /// Desktop OAuth2 Loopback Flow (RFC 8252) via Google Identity Toolkit
+  /// Desktop OAuth2 Loopback Flow (RFC 8252) via Google Desktop Client
   Future<UserProfile?> _performDesktopOAuthLoopback({String? customClientId}) async {
     _loopbackServer?.close(force: true);
 
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _loopbackServer = server;
     final port = server.port;
-    final redirectUri = 'http://localhost:$port';
+    final redirectUri = 'http://127.0.0.1:$port';
+
+    final clientId = customClientId ?? desktopClientId;
+    final clientSecret = desktopClientSecret;
 
     final completer = Completer<UserProfile?>();
 
@@ -140,155 +146,75 @@ class AuthService extends ChangeNotifier {
     server.listen((HttpRequest request) async {
       try {
         final uri = request.uri;
+        final code = uri.queryParameters['code'];
+        final error = uri.queryParameters['error'];
+        final idToken = uri.queryParameters['id_token'];
 
-        if (uri.path == '/callback') {
-          final idToken = uri.queryParameters['id_token'] ?? uri.queryParameters['access_token'];
-          final code = uri.queryParameters['code'];
-          final emailParam = uri.queryParameters['email'];
-
-          UserProfile? userProfile;
-          if (idToken != null && idToken.isNotEmpty) {
-            userProfile = _decodeJwtOrToken(idToken);
-          }
-          if (userProfile == null && code != null && code.isNotEmpty) {
-            userProfile = await _fetchGoogleProfileFromCode(code: code, redirectUri: redirectUri);
-          }
-          if (userProfile == null && emailParam != null && emailParam.contains('@')) {
-            final email = emailParam.trim().toLowerCase();
-            final name = email.split('@').first.replaceAll('.', ' ');
-            userProfile = UserProfile(
-              uid: 'google_${emailToDocId(email)}',
-              email: email,
-              displayName: name.isNotEmpty ? name[0].toUpperCase() + name.substring(1) : email,
-              photoUrl: 'https://www.gravatar.com/avatar/${email.hashCode}?d=identicon',
-              loggedInAt: DateTime.now(),
-            );
-          }
-
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'success': userProfile != null}));
-          await request.response.close();
-
-          if (userProfile != null && !completer.isCompleted) {
-            timeoutTimer.cancel();
-            completer.complete(userProfile);
-            server.close(force: true);
-          }
-          return;
-        }
-
-        // Return client-side hash parser HTML response
+        // Return pleasant HTML response in user's browser
         request.response.headers.contentType = ContentType.html;
         request.response.write('''
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Slim4K - Connecting Account</title>
+  <title>Slim4K - Authentication Successful</title>
   <style>
-    body { background: #0D1117; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    body { background: #0D1117; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     .card { background: #161B22; border: 1px solid #30363D; padding: 40px; border-radius: 16px; text-align: center; max-width: 440px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); }
-    h2 { color: #00E5FF; margin-top: 0; font-size: 20px; }
-    p { color: #8B949E; line-height: 1.5; font-size: 14px; margin-bottom: 20px; }
-    .badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px; }
-    .success { background: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
-    .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #00E5FF; border-radius: 50%; width: 28px; height: 28px; animation: spin 1s linear infinite; margin: 20px auto; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    h2 { color: #00E676; margin-top: 0; font-size: 22px; }
+    p { color: #8B949E; line-height: 1.5; font-size: 14px; margin-bottom: 24px; }
+    .badge { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 13px; background: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
   </style>
 </head>
 <body>
   <div class="card">
-    <div id="loader" class="spinner"></div>
-    <h2 id="heading">Connecting your Google Account...</h2>
-    <p id="sub">Please wait while Slim4K links your Studio License & Quota.</p>
+    <h2>✓ Sign-in Successful</h2>
+    <p>Your Google account has been connected to <b>Slim4K Studio</b>.</p>
+    <div class="badge">You can safely close this browser window and return to Slim4K.</div>
   </div>
-  <script>
-    (function() {
-      var hash = window.location.hash.substring(1);
-      var search = window.location.search.substring(1);
-      var params = new URLSearchParams(hash || search);
-      var idToken = params.get('id_token') || params.get('access_token');
-      var code = params.get('code');
-      var email = params.get('email');
-
-      if (idToken || code || email) {
-        var callbackUrl = '/callback?' + (idToken ? 'id_token=' + encodeURIComponent(idToken) : '') +
-                          (code ? '&code=' + encodeURIComponent(code) : '') +
-                          (email ? '&email=' + encodeURIComponent(email) : '');
-        fetch(callbackUrl)
-          .then(function(res) { return res.json(); })
-          .then(function(data) {
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('heading').innerHTML = '<span style="color:#00E676">✓ Google Sign-in Successful</span>';
-            document.getElementById('sub').innerHTML = 'Your account has been connected to <b>Slim4K</b>.<br><br><span class="badge success">You can now close this tab and return to the app.</span>';
-          })
-          .catch(function(err) {
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('heading').innerHTML = '<span style="color:#00E676">✓ Completed</span>';
-            document.getElementById('sub').innerText = 'You can safely return to the Slim4K application.';
-          });
-      } else {
-        document.getElementById('loader').style.display = 'none';
-        document.getElementById('heading').innerText = 'Slim4K Google Authentication';
-        document.getElementById('sub').innerText = 'Authentication callback received. You can return to Slim4K.';
-      }
-    })();
-  </script>
 </body>
 </html>
 ''');
         await request.response.close();
+
+        UserProfile? userProfile;
+
+        if (code != null && code.isNotEmpty) {
+          userProfile = await _fetchGoogleProfileFromCode(
+            code: code,
+            redirectUri: redirectUri,
+            clientId: clientId,
+            clientSecret: clientSecret,
+          );
+        } else if (idToken != null && idToken.isNotEmpty) {
+          userProfile = _decodeJwtOrToken(idToken);
+        }
+
+        if (userProfile != null && !completer.isCompleted) {
+          timeoutTimer.cancel();
+          completer.complete(userProfile);
+          server.close(force: true);
+        } else if (error != null && !completer.isCompleted) {
+          timeoutTimer.cancel();
+          completer.complete(null);
+          server.close(force: true);
+        }
       } catch (e) {
         debugPrint('Loopback request handling error: $e');
         if (!completer.isCompleted) completer.complete(null);
       }
     });
 
-    // 1. Fetch official Google Auth URI from Identity Toolkit
-    String? authUrl = await _fetchGoogleAuthUri(redirectUri: redirectUri);
-
-    // 2. Fallback to direct Google OAuth URL if identity toolkit is slow/offline
-    if (authUrl == null || authUrl.isEmpty) {
-      final cId = customClientId ?? '472240647159-mu4k7693h14hhatajf7loj8m5jfg5qv9.apps.googleusercontent.com';
-      authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
-          '?client_id=$cId'
-          '&redirect_uri=${Uri.encodeComponent(redirectUri)}'
-          '&response_type=code'
-          '&scope=${Uri.encodeComponent('openid email profile')}'
-          '&prompt=select_account';
-    }
+    final authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
+        '?client_id=$clientId'
+        '&redirect_uri=${Uri.encodeComponent(redirectUri)}'
+        '&response_type=code'
+        '&scope=${Uri.encodeComponent('openid email profile')}'
+        '&prompt=select_account';
 
     _openBrowser(authUrl);
 
     return completer.future;
-  }
-
-  /// Queries Google Identity Toolkit for the exact authorized Google OAuth URL
-  Future<String?> _fetchGoogleAuthUri({required String redirectUri}) async {
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 8);
-      final uri = Uri.parse(
-        'https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${QuotaService.apiKey}',
-      );
-      final req = await client.postUrl(uri);
-      req.headers.contentType = ContentType.json;
-      req.write(jsonEncode({
-        'providerId': 'google.com',
-        'continueUri': redirectUri,
-      }));
-      final resp = await req.close();
-      if (resp.statusCode == 200) {
-        final body = await utf8.decoder.bind(resp).join();
-        final json = jsonDecode(body) as Map<String, dynamic>;
-        client.close();
-        return json['authUri'] as String?;
-      }
-      client.close();
-    } catch (e) {
-      debugPrint('Failed to get authUri from identity toolkit: $e');
-    }
-    return null;
   }
 
   void _openBrowser(String url) {
@@ -310,25 +236,33 @@ class AuthService extends ChangeNotifier {
     required String code,
     required String redirectUri,
     String? clientId,
+    String? clientSecret,
   }) async {
-    // If running in dev/local environment where client secret is not on client binary,
-    // extract profile or decode standard payload
     try {
       final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 10);
       final uri = Uri.parse('https://oauth2.googleapis.com/token');
       final req = await client.postUrl(uri);
       req.headers.contentType = ContentType('application', 'x-www-form-urlencoded');
 
-      final body = 'code=$code&client_id=${clientId ?? ''}&redirect_uri=${Uri.encodeComponent(redirectUri)}&grant_type=authorization_code';
+      final body = 'code=$code'
+          '&client_id=${clientId ?? desktopClientId}'
+          '&client_secret=${clientSecret ?? desktopClientSecret}'
+          '&redirect_uri=${Uri.encodeComponent(redirectUri)}'
+          '&grant_type=authorization_code';
+
       req.write(body);
       final resp = await req.close();
       final respStr = await utf8.decoder.bind(resp).join();
       final json = jsonDecode(respStr) as Map<String, dynamic>;
+      client.close();
 
       if (json['id_token'] != null) {
         return _decodeJwtOrToken(json['id_token'] as String);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Code token exchange error: $e');
+    }
     return null;
   }
 

@@ -44,6 +44,37 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> _handleGoogleSignIn() async {
+    setState(() {
+      _isSigningIn = true;
+      _statusMessage = 'Opening Google Sign-In in your browser...';
+    });
+
+    try {
+      final profile = await _authService.signInWithGoogle(
+        hardwareClientId: _hardwareClientId,
+      );
+
+      if (profile != null && mounted) {
+        _navigateToHome(profile);
+      } else {
+        if (mounted) {
+          setState(() {
+            _isSigningIn = false;
+            _statusMessage = 'Sign-in cancelled or timed out. Please try again.';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSigningIn = false;
+          _statusMessage = 'Sign-in error: $e';
+        });
+      }
+    }
+  }
+
   Future<void> _handleDirectEmailSignIn() async {
     final email = _emailCtrl.text.trim();
     if (!email.contains('@')) {
@@ -246,7 +277,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Enter your Google account email to unlock your 10 TB Studio quota, activate hardware acceleration, and sync licenses across workstations.',
+                            'Sign in with your Google account to unlock your 10 TB Studio quota, activate hardware acceleration, and sync licenses across workstations.',
                             style: TextStyle(
                               color: Color(0xFFC9D1D9),
                               fontSize: 12,
@@ -259,72 +290,63 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Google Email Input (Primary)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'GOOGLE ACCOUNT EMAIL',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _emailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'e.g. jobwithios@gmail.com',
-                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
-                      filled: true,
-                      fillColor: const Color(0xFF0D1117),
-                      prefixIcon: const Icon(Icons.account_circle_outlined, color: Color(0xFF00E5FF), size: 20),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF30363D)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF30363D)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 1.5),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Primary Sign In Button
+                  // Official 1-Click "Sign in with Google" Button
                   SizedBox(
                     width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
+                    height: 50,
+                    child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00E5FF),
-                        foregroundColor: Colors.black,
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black87,
                         elevation: 2,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      onPressed: _isSigningIn ? null : _handleDirectEmailSignIn,
-                      icon: _isSigningIn
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      onPressed: _isSigningIn ? null : _handleGoogleSignIn,
+                      child: _isSigningIn
+                          ? const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Connecting...',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ],
                             )
-                          : const Icon(Icons.arrow_forward_rounded, size: 18),
-                      label: Text(
-                        _isSigningIn ? 'Verifying Account...' : 'Sign in with Google Account',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                      ),
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Image.network(
+                                  'https://www.gstatic.com/images/branding/product/2x/googleg_48dp.png',
+                                  width: 20,
+                                  height: 20,
+                                  errorBuilder: (_, _, _) => const Icon(
+                                    Icons.login_rounded,
+                                    size: 20,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Sign in with Google',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ),
                   ),
 
@@ -344,6 +366,75 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ],
+
+                  const SizedBox(height: 22),
+                  const Row(
+                    children: [
+                      Expanded(child: Divider(color: Color(0xFF30363D))),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          'OR ENTER GOOGLE EMAIL',
+                          style: TextStyle(
+                            color: Colors.white38,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: Color(0xFF30363D))),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Google Email Input
+                  TextField(
+                    controller: _emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. jobwithios@gmail.com',
+                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                      filled: true,
+                      fillColor: const Color(0xFF0D1117),
+                      prefixIcon: const Icon(Icons.account_circle_outlined, color: Color(0xFF00E5FF), size: 18),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFF30363D)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFF30363D)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 1.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Direct Email Sign In Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF00E5FF),
+                        side: const BorderSide(color: Color(0xFF00E5FF)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: _isSigningIn ? null : _handleDirectEmailSignIn,
+                      child: const Text(
+                        'Verify Email & Unlock Quota',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
 
                   const SizedBox(height: 24),
                   const Row(
