@@ -31,7 +31,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
 
   // Default NeerTech Cashfree Details (dynamically synced from license server)
   static const String defaultPayeeName = 'NeerTech Technologies';
-  static const String defaultLicenseAmount = '8999';
+  static const String defaultLicenseAmount = '9999';
   static const String defaultSupportPhone = '+91 74588 29500';
   static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/links?code=Nb7rbehn28jg_AAAAAAAWrHQ';
 
