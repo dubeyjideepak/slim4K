@@ -6,8 +6,25 @@ import '../models/user_profile.dart';
 import 'keychain_service.dart';
 import 'quota_service.dart';
 
+/// Represents the seat allocation status for an active Google account (capped at 2 PCs)
+class DeviceSeatStatus {
+  final bool isAllowed;
+  final int maxSeats;
+  final List<String> activeDevices;
+  final bool seatLimitExceeded;
+  final String? invoiceId;
+
+  const DeviceSeatStatus({
+    required this.isAllowed,
+    required this.maxSeats,
+    required this.activeDevices,
+    this.seatLimitExceeded = false,
+    this.invoiceId,
+  });
+}
+
 /// Manages Google Authentication, user session persistence,
-/// and Firestore account-level quota & multi-device synchronization.
+/// 2-device seat allocation, and multi-device synchronization.
 class AuthService extends ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
@@ -21,6 +38,9 @@ class AuthService extends ChangeNotifier {
 
   bool _isSigningIn = false;
   bool get isSigningIn => _isSigningIn;
+
+  DeviceSeatStatus? _currentSeatStatus;
+  DeviceSeatStatus? get currentSeatStatus => _currentSeatStatus;
 
   String? _googleClientId;
   HttpServer? _loopbackServer;
@@ -267,21 +287,58 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Links the current machine (hardwareClientId) with the Google Account in Firestore
-  Future<void> linkDeviceToGoogleAccount({
+  /// and enforces the 2-device seat cap.
+  Future<DeviceSeatStatus> linkDeviceToGoogleAccount({
     required UserProfile user,
     required String hardwareClientId,
   }) async {
-    if (hardwareClientId.isEmpty) return;
+    const maxSeats = 2;
+    if (hardwareClientId.isEmpty) {
+      return const DeviceSeatStatus(isAllowed: true, maxSeats: maxSeats, activeDevices: []);
+    }
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 8);
 
       final userDocId = emailToDocId(user.email);
 
-      // 1. Update / create apps/slim4k/users/{userDocId}
+      // 1. Fetch current user document to inspect active_devices
+      final fetchUri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/user_$userDocId?key=${QuotaService.apiKey}',
+      );
+      final fetchReq = await client.getUrl(fetchUri);
+      final fetchResp = await fetchReq.close();
+
+      List<String> activeDevices = [];
+      String? invoiceId;
+
+      if (fetchResp.statusCode == 200) {
+        final body = await utf8.decoder.bind(fetchResp).join();
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+
+        final rawDevices = fields['active_devices']?['arrayValue']?['values'] as List<dynamic>?;
+        if (rawDevices != null) {
+          activeDevices = rawDevices
+              .map((v) => v['stringValue']?.toString() ?? '')
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+        invoiceId = fields['invoice_id']?['stringValue'];
+      }
+
+      // Check seat capacity
+      final isAlreadyRegistered = activeDevices.contains(hardwareClientId);
+      final isSeatLimitExceeded = !isAlreadyRegistered && activeDevices.length >= maxSeats;
+
+      if (!isAlreadyRegistered && !isSeatLimitExceeded) {
+        activeDevices.add(hardwareClientId);
+      }
+
+      // 2. Update apps/slim4k/users/{userDocId}
       final userUri = Uri.parse(
-        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/users/$userDocId'
-        '?updateMask.fieldPaths=email&updateMask.fieldPaths=display_name&updateMask.fieldPaths=photo_url&updateMask.fieldPaths=last_login_at&key=${QuotaService.apiKey}',
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/user_$userDocId'
+        '?updateMask.fieldPaths=email&updateMask.fieldPaths=display_name&updateMask.fieldPaths=photo_url&updateMask.fieldPaths=last_login_at&updateMask.fieldPaths=max_active_devices&updateMask.fieldPaths=active_devices&key=${QuotaService.apiKey}',
       );
 
       final userPatch = await client.patchUrl(userUri);
@@ -292,12 +349,18 @@ class AuthService extends ChangeNotifier {
           'display_name': {'stringValue': user.displayName},
           'photo_url': {'stringValue': user.photoUrl ?? ''},
           'last_login_at': {'stringValue': DateTime.now().toIso8601String()},
+          'max_active_devices': {'integerValue': maxSeats.toString()},
+          'active_devices': {
+            'arrayValue': {
+              'values': activeDevices.map((d) => {'stringValue': d}).toList(),
+            }
+          }
         }
       }));
       final userResp = await userPatch.close();
       await userResp.drain();
 
-      // 2. Update apps/slim4k/clients/{hardwareClientId} to tag the linked Google account
+      // 3. Update apps/slim4k/clients/{hardwareClientId} to tag the linked Google account
       final clientUri = Uri.parse(
         'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$hardwareClientId'
         '?updateMask.fieldPaths=linked_google_email&updateMask.fieldPaths=linked_user_id&key=${QuotaService.apiKey}',
@@ -315,8 +378,105 @@ class AuthService extends ChangeNotifier {
       await clientResp.drain();
 
       client.close();
+
+      _currentSeatStatus = DeviceSeatStatus(
+        isAllowed: !isSeatLimitExceeded,
+        maxSeats: maxSeats,
+        activeDevices: activeDevices,
+        seatLimitExceeded: isSeatLimitExceeded,
+        invoiceId: invoiceId,
+      );
+      notifyListeners();
+      return _currentSeatStatus!;
     } catch (e) {
-      debugPrint('Link device to Google account error: $e');
+      debugPrint('Link device error: $e');
+      return const DeviceSeatStatus(isAllowed: true, maxSeats: 2, activeDevices: []);
+    }
+  }
+
+  /// Transfers a seat by deactivating an old device and activating the new machine
+  Future<bool> transferDeviceSeat({
+    required UserProfile user,
+    required String oldHardwareClientId,
+    required String newHardwareClientId,
+  }) async {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 10);
+      final userDocId = emailToDocId(user.email);
+
+      // 1. Fetch user doc to get active_devices
+      final fetchUri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/user_$userDocId?key=${QuotaService.apiKey}',
+      );
+      final fetchReq = await client.getUrl(fetchUri);
+      final fetchResp = await fetchReq.close();
+      List<String> activeDevices = [];
+
+      if (fetchResp.statusCode == 200) {
+        final body = await utf8.decoder.bind(fetchResp).join();
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+        final rawDevices = fields['active_devices']?['arrayValue']?['values'] as List<dynamic>?;
+        if (rawDevices != null) {
+          activeDevices = rawDevices
+              .map((v) => v['stringValue']?.toString() ?? '')
+              .where((s) => s.isNotEmpty && s != oldHardwareClientId)
+              .toList();
+        }
+      }
+
+      if (!activeDevices.contains(newHardwareClientId)) {
+        activeDevices.add(newHardwareClientId);
+      }
+
+      // 2. Update user doc with new active_devices
+      final patchUserUri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/user_$userDocId'
+        '?updateMask.fieldPaths=active_devices&key=${QuotaService.apiKey}',
+      );
+      final patchReq = await client.patchUrl(patchUserUri);
+      patchReq.headers.contentType = ContentType.json;
+      patchReq.write(jsonEncode({
+        'fields': {
+          'active_devices': {
+            'arrayValue': {
+              'values': activeDevices.map((d) => {'stringValue': d}).toList(),
+            }
+          }
+        }
+      }));
+      final patchResp = await patchReq.close();
+      await patchResp.drain();
+
+      // 3. Deactivate old client in Firestore
+      final deactUri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$oldHardwareClientId'
+        '?updateMask.fieldPaths=is_license_activated&key=${QuotaService.apiKey}',
+      );
+      final deactReq = await client.patchUrl(deactUri);
+      deactReq.headers.contentType = ContentType.json;
+      deactReq.write(jsonEncode({
+        'fields': {
+          'is_license_activated': {'booleanValue': false},
+        }
+      }));
+      final deactResp = await deactReq.close();
+      await deactResp.drain();
+
+      client.close();
+
+      _currentSeatStatus = DeviceSeatStatus(
+        isAllowed: true,
+        maxSeats: 2,
+        activeDevices: activeDevices,
+        seatLimitExceeded: false,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Seat transfer error: $e');
+      return false;
     }
   }
 

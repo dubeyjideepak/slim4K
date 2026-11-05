@@ -54,6 +54,15 @@ class QuotaService extends ChangeNotifier {
   String? _licenseKey;
   DateTime? _licenseExpiresAt;
 
+  List<String> _activeSeats = [];
+  List<String> get activeSeats => _activeSeats;
+  int _maxSeats = 2;
+  int get maxSeats => _maxSeats;
+  bool _isSeatLimitReached = false;
+  bool get isSeatLimitReached => _isSeatLimitReached;
+  String? _accountInvoiceId;
+  String? get accountInvoiceId => _accountInvoiceId;
+
   // Getters
   int get totalBytesSlimmed => _totalBytesSlimmed;
   int get totalBytesSaved => _totalBytesSaved;
@@ -451,7 +460,7 @@ class QuotaService extends ChangeNotifier {
       client.connectionTimeout = const Duration(seconds: 10);
 
       final uri = Uri.parse(
-        'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/users/$emailDocId?key=$apiKey',
+        'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/clients/user_$emailDocId?key=$apiKey',
       );
 
       final req = await client.getUrl(uri);
@@ -483,18 +492,32 @@ class QuotaService extends ChangeNotifier {
         await _keychain.setQuotaLimitBytes(_quotaLimitBytes);
         await _saveLocalCache();
 
+        // Check 2-device seat allocation limit
+        final rawDevices = fields['active_devices']?['arrayValue']?['values'] as List<dynamic>?;
+        _activeSeats = rawDevices != null
+            ? rawDevices.map((v) => v['stringValue']?.toString() ?? '').where((s) => s.isNotEmpty).toList()
+            : <String>[];
+        _maxSeats = int.tryParse(fields['max_active_devices']?['integerValue']?.toString() ?? '') ?? 2;
+        _accountInvoiceId = fields['invoice_id']?['stringValue'];
+
+        final isDeviceRegistered = clientId.isNotEmpty && _activeSeats.contains(clientId);
+        _isSeatLimitReached = !isDeviceRegistered && _activeSeats.length >= _maxSeats;
+
         // Check if account has an active commercial license purchased on another machine
         final isLicenseActive = fields['is_license_activated']?['booleanValue'] == true;
         final paymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
         if (isLicenseActive || paymentStatus == 'PAID' || paymentStatus == 'SUCCESS') {
           if (!_isLicenseActivated) {
-            final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
-            final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
-            await activateLicense(
-              licenseKey: internalLicenseId,
-              validityDays: validityDays,
-              quotaBytes: reconciledQuota,
-            );
+            // Only auto-unlock this computer if it is within the 2-seat limit
+            if (!_isSeatLimitReached) {
+              final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+              final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
+              await activateLicense(
+                licenseKey: internalLicenseId,
+                validityDays: validityDays,
+                quotaBytes: reconciledQuota,
+              );
+            }
           }
         }
 
@@ -538,7 +561,7 @@ class QuotaService extends ChangeNotifier {
         '&updateMask.fieldPaths=last_slimmed_at';
 
     final uri = Uri.parse(
-      'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/users/$emailDocId?$fieldsQuery&key=$apiKey',
+      'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/clients/user_$emailDocId?$fieldsQuery&key=$apiKey',
     );
     final req = await client.patchUrl(uri);
     req.headers.contentType = ContentType.json;

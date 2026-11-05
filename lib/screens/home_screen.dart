@@ -7,6 +7,7 @@ import '../models/app_activation.dart';
 import '../models/user_profile.dart';
 import '../models/video_task.dart';
 import '../services/activation_service.dart';
+import '../services/app_update_service.dart';
 import '../services/auth_service.dart';
 import '../services/compression_engine.dart';
 import '../services/keychain_service.dart';
@@ -55,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkActivation();
     _detectEncoder();
     _checkInitialFile();
+    _checkAppUpdates();
   }
 
   @override
@@ -77,6 +79,75 @@ class _HomeScreenState extends State<HomeScreen> {
         _isActivationChecking = false;
       });
     }
+  }
+
+  Future<void> _checkAppUpdates() async {
+    try {
+      final update = await AppUpdateService().checkForUpdates();
+      if (mounted && update != null && update.isUpdateAvailable) {
+        _showUpdateDialog(update);
+      }
+    } catch (_) {}
+  }
+
+  void _showUpdateDialog(AppUpdateInfo update) {
+    showDialog(
+      context: context,
+      barrierDismissible: !update.isMandatory,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF161B22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.system_update_alt, color: Color(0xFF00E5FF), size: 22),
+            const SizedBox(width: 8),
+            Text('Update Available (v${update.latestVersion})', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('A new version of Slim4K (v${update.latestVersion}) is available. Current version: v${update.currentVersion}.',
+              style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D1117),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF30363D)),
+              ),
+              child: Text(
+                update.releaseNotes,
+                style: const TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (!update.isMandatory)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Remind Me Later', style: TextStyle(color: Colors.white54)),
+            ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E5FF),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              AppUpdateService().launchUpdateDownload(update.downloadUrl);
+              Navigator.pop(ctx);
+            },
+            icon: const Icon(Icons.download, size: 16),
+            label: const Text('Download Update', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _checkInitialFile() async {
@@ -997,6 +1068,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               _dialogInfoRow('Account Plan', _quotaService.isLicenseActivated ? 'Pro Studio 10 TB (Active ✅)' : 'Free Trial (2.0 GB)'),
               const Divider(color: Color(0xFF21262D)),
+              _dialogInfoRow('Active Seats', '${_quotaService.activeSeats.length} / ${_quotaService.maxSeats} Workstations (Cap: 2 PCs)'),
+              const Divider(color: Color(0xFF21262D)),
               _dialogInfoRow('Total Slimmed', _quotaService.isTrialMode ? '${_quotaService.trialUsedGb.toStringAsFixed(2)} GB / 2.0 GB' : '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB'),
               const Divider(color: Color(0xFF21262D)),
               _dialogInfoRow('Total Saved', '${_quotaService.totalTbSaved.toStringAsFixed(2)} TB'),
@@ -1004,10 +1077,71 @@ class _HomeScreenState extends State<HomeScreen> {
               _dialogInfoRow('Files Slimmed', '${_quotaService.totalFilesSlimmed} videos'),
               const Divider(color: Color(0xFF21262D)),
               _dialogInfoRow('Cross-PC Sync', 'Active (All PCs linked to this Google account share this quota)'),
+              if (_quotaService.isSeatLimitReached) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          '2/2 PCs already active. You can transfer a seat to this computer.',
+                          style: TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _showSeatLimitModal(user);
+                        },
+                        child: const Text('Transfer Seat', style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_quotaService.isLicenseActivated || _quotaService.accountInvoiceId != null) ...[
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF00E5FF),
+                      side: const BorderSide(color: Color(0xFF00E5FF)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      final invoiceId = _quotaService.accountInvoiceId ?? _quotaService.licenseKey ?? _activation?.clientId ?? '';
+                      final receiptUrl = invoiceId.isNotEmpty
+                          ? 'https://us-central1-neertech-technologies.cloudfunctions.net/viewInvoice?id=$invoiceId'
+                          : 'https://neertechtechnologies.in';
+                      AppUpdateService().launchUpdateDownload(receiptUrl);
+                    },
+                    icon: const Icon(Icons.receipt_long, size: 16),
+                    label: const Text('View Official Payment Receipt & Invoice', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
         actions: [
+          if (_quotaService.isSeatLimitReached)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showSeatLimitModal(user);
+              },
+              child: const Text('Manage Seats', style: TextStyle(color: Colors.amber)),
+            ),
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
@@ -1036,6 +1170,108 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close', style: TextStyle(color: Colors.white54)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSeatLimitModal(UserProfile user) {
+    final activeDevices = _quotaService.activeSeats;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF161B22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.devices, color: Colors.amber, size: 22),
+            SizedBox(width: 8),
+            Text('Device Seat Limit (2 of 2 PCs Active)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Your Slim4K 10 TB Studio license is currently active on 2 other workstations. To activate this computer, select an existing PC to replace:',
+                style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              if (activeDevices.isEmpty)
+                const Text('No registered devices found.', style: TextStyle(color: Colors.white54, fontSize: 12))
+              else
+                ...activeDevices.asMap().entries.map((entry) {
+                  final idx = entry.key + 1;
+                  final dev = entry.value;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D1117),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF30363D)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.computer, color: Color(0xFF00E5FF), size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Workstation $idx', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                              Text(dev.length > 16 ? '${dev.substring(0, 16)}...' : dev, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
+                            foregroundColor: Colors.redAccent,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            minimumSize: Size.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                              side: const BorderSide(color: Colors.redAccent),
+                            ),
+                          ),
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            final currentClientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+                            final success = await _authService.transferDeviceSeat(
+                              user: user,
+                              oldHardwareClientId: dev,
+                              newHardwareClientId: currentClientId,
+                            );
+                            if (success) {
+                              await _quotaService.syncWithGoogleAccount(user: user, clientId: currentClientId);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Seat transferred successfully! License is now active on this PC.'),
+                                    backgroundColor: Color(0xFF00E676),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          child: const Text('Replace & Activate Here', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Keep as Free Trial', style: TextStyle(color: Colors.white54)),
           ),
         ],
       ),

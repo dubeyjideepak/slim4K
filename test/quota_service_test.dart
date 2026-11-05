@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slim4k/services/quota_service.dart';
+import 'package:slim4k/services/app_update_service.dart';
 
 void main() {
   group('QuotaService Unit Tests', () {
@@ -59,6 +60,10 @@ void main() {
       // Surpasses 2.5 GB during live processing:
       expect(quota.isHardLimitExceeded(additionalBytes: 2684354560), isTrue);
       expect(quota.isHardLimitExceeded(additionalBytes: 3 * 1024 * 1024 * 1024), isTrue);
+    });
+
+    test('AppUpdateService version comparison logic', () {
+      expect(AppUpdateService.currentAppVersion, equals('1.0.0'));
     });
   });
 }
