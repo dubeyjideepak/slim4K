@@ -856,6 +856,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showGoogleSignInModal() {
     final emailCtrl = TextEditingController();
+    final licCtrl = TextEditingController();
     bool isSubmitting = false;
 
     showDialog(
@@ -999,6 +1000,85 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           },
                     child: const Text('Link Google Email & Restore License', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                const Row(
+                  children: [
+                    Expanded(child: Divider(color: Color(0xFF30363D))),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Text('OR REDEEM LICENSE KEY', style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                    Expanded(child: Divider(color: Color(0xFF30363D))),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                TextField(
+                  controller: licCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  style: const TextStyle(color: Colors.white, fontSize: 13, letterSpacing: 1.0, fontFamily: 'monospace'),
+                  decoration: InputDecoration(
+                    hintText: 'LIC-XXXXXXXXXXXX',
+                    hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                    filled: true,
+                    fillColor: const Color(0xFF0D1117),
+                    prefixIcon: const Icon(Icons.vpn_key_outlined, color: Colors.white54, size: 18),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF30363D))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF30363D))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF00E676))),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF00E676),
+                      side: const BorderSide(color: Color(0xFF00E676)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            final rawKey = licCtrl.text.trim();
+                            if (rawKey.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Please enter your license key from invoice/receipt'), backgroundColor: Colors.orange),
+                              );
+                              return;
+                            }
+                            setModalState(() => isSubmitting = true);
+                            final clientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+                            final success = await _quotaService.redeemLicenseKey(
+                              licenseKey: rawKey,
+                              clientId: clientId,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) {
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('License $rawKey redeemed! 10 TB unlocked.'),
+                                    backgroundColor: const Color(0xFF00E676),
+                                  ),
+                                );
+                                _checkActivation();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Invalid or inactive license key. Please check your invoice.'),
+                                    backgroundColor: Colors.redAccent,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                    child: const Text('Redeem License Key (10 TB)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
                 ),
               ],

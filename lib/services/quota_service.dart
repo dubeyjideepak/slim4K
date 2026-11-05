@@ -218,6 +218,57 @@ class QuotaService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Directly redeems a standalone License Key (e.g. LIC-...) from receipt or invoice
+  Future<bool> redeemLicenseKey({
+    required String licenseKey,
+    required String clientId,
+  }) async {
+    final cleanKey = licenseKey.trim().toUpperCase();
+    if (cleanKey.isEmpty) return false;
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+
+      final uri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/clients/lic_$cleanKey?key=$apiKey',
+      );
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+
+      if (resp.statusCode == 200) {
+        final body = await utf8.decoder.bind(resp).join();
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+
+        final isActive = fields['is_active']?['booleanValue'] != false;
+        if (!isActive) {
+          client.close();
+          return false;
+        }
+
+        final quotaBytes = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ?? defaultQuotaBytes;
+        final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+
+        await activateLicense(
+          licenseKey: cleanKey,
+          validityDays: validityDays,
+          quotaBytes: quotaBytes,
+        );
+
+        if (clientId.isNotEmpty) {
+          await _patchQuotaToFirestore(client, clientId);
+        }
+
+        client.close();
+        return true;
+      }
+      client.close();
+    } catch (e) {
+      debugPrint('License redemption error: $e');
+    }
+    return false;
+  }
+
   /// Records a successfully slimmed video
   Future<void> recordSlimmedVideo({
     required int inputBytes,
