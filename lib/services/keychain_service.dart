@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../models/user_profile.dart';
 
 /// Secure Keychain and Hardware Credential Storage
 /// 
@@ -26,6 +27,13 @@ class KeychainService {
   static const String keyLicenseKey = 'slim4k_license_key';
   static const String keyLicenseActivatedAt = 'slim4k_license_activated_at';
   static const String keyLicenseExpiresAt = 'slim4k_license_expires_at';
+
+  // Google User Profile Keys
+  static const String keyGoogleUserEmail = 'slim4k_google_user_email';
+  static const String keyGoogleUserName = 'slim4k_google_user_name';
+  static const String keyGoogleUserPhoto = 'slim4k_google_user_photo';
+  static const String keyGoogleUserId = 'slim4k_google_user_id';
+  static const String keyGoogleLoggedInAt = 'slim4k_google_logged_in_at';
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage(
     mOptions: MacOsOptions(
@@ -171,6 +179,43 @@ class KeychainService {
   }
 
   Future<void> setLicenseExpiresAt(DateTime dt) => write(keyLicenseExpiresAt, dt.toIso8601String());
+
+  // --- Google User Profile Accessors ---
+
+  Future<UserProfile?> getGoogleUserProfile() async {
+    final email = await read(keyGoogleUserEmail);
+    if (email == null || email.isEmpty) return null;
+    final uid = await read(keyGoogleUserId) ?? email;
+    final name = await read(keyGoogleUserName) ?? email;
+    final photo = await read(keyGoogleUserPhoto);
+    final loggedAtStr = await read(keyGoogleLoggedInAt);
+    final loggedAt = loggedAtStr != null ? DateTime.tryParse(loggedAtStr) : null;
+    return UserProfile(
+      uid: uid,
+      email: email,
+      displayName: name,
+      photoUrl: photo,
+      loggedInAt: loggedAt,
+    );
+  }
+
+  Future<void> setGoogleUserProfile(UserProfile profile) async {
+    await write(keyGoogleUserEmail, profile.email);
+    await write(keyGoogleUserId, profile.uid);
+    await write(keyGoogleUserName, profile.displayName);
+    if (profile.photoUrl != null && profile.photoUrl!.isNotEmpty) {
+      await write(keyGoogleUserPhoto, profile.photoUrl!);
+    }
+    await write(keyGoogleLoggedInAt, (profile.loggedInAt ?? DateTime.now()).toIso8601String());
+  }
+
+  Future<void> clearGoogleUserProfile() async {
+    await delete(keyGoogleUserEmail);
+    await delete(keyGoogleUserId);
+    await delete(keyGoogleUserName);
+    await delete(keyGoogleUserPhoto);
+    await delete(keyGoogleLoggedInAt);
+  }
 
   // --- Native macOS /usr/bin/security CLI Integration ---
 

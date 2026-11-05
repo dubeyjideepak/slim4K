@@ -4,6 +4,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import '../models/user_profile.dart';
+import 'auth_service.dart';
 import 'keychain_service.dart';
 
 /// Service managing the 10 TB Annual Video Slimming Quota and Usage Tracking
@@ -30,9 +32,13 @@ class QuotaService extends ChangeNotifier {
   static const int defaultQuotaBytes = 10 * 1024 * 1024 * 1024 * 1024; // 10,995,116,277,760
   static const double defaultQuotaTb = 10.0;
 
-  /// 2.0 GB Free Trial Limit for unactivated users (can be optionally overridden by Firestore `trial_limit_bytes`)
+  /// 2.0 GB Free Trial Limit for unactivated users (default displayed quota)
   static const int trialLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
   static const double defaultTrialLimitGb = 2.0;
+
+  /// 2.5 GB Hard Processing Ceiling during active file slimming
+  static const int trialHardLimitBytes = 2684354560; // 2.5 * 1024 * 1024 * 1024
+  static const double defaultTrialHardLimitGb = 2.5;
 
   int _trialLimitBytes = trialLimitBytes;
   int _totalBytesSlimmed = 0;
@@ -62,6 +68,12 @@ class QuotaService extends ChangeNotifier {
   bool get isLicenseActivated => _isLicenseActivated;
   bool get isTrialMode => !_isLicenseActivated;
   bool get isTrialExceeded => isTrialMode && (_totalBytesSlimmed >= _trialLimitBytes);
+
+  /// Checks if trial processing has surpassed the 2.5 GB hard live processing ceiling
+  bool isHardLimitExceeded({int additionalBytes = 0}) {
+    if (!isTrialMode) return false;
+    return (_totalBytesSlimmed + additionalBytes) >= trialHardLimitBytes;
+  }
   bool get isLicenseExpired => _isLicenseActivated && _licenseExpiresAt != null && DateTime.now().isAfter(_licenseExpiresAt!);
   String? get licenseKey => _licenseKey;
   DateTime? get licenseExpiresAt => _licenseExpiresAt;
@@ -256,10 +268,15 @@ class QuotaService extends ChangeNotifier {
   }
 
   void _syncToFirestoreBackground(String clientId) {
-    if (clientId.isEmpty) return;
     Future.microtask(() async {
       try {
-        await syncWithFirestore(clientId: clientId);
+        if (clientId.isNotEmpty) {
+          await syncWithFirestore(clientId: clientId);
+        }
+        final user = AuthService().currentUser;
+        if (user != null && user.isValid) {
+          await syncWithGoogleAccount(user: user, clientId: clientId);
+        }
       } catch (e) {
         debugPrint('Background quota sync notice: $e');
       }
@@ -424,5 +441,109 @@ class QuotaService extends ChangeNotifier {
     req2.write(jsonEncode(payload));
     final resp2 = await req2.close();
     await resp2.drain();
+  }
+
+  /// Synchronizes cumulative quota and active license with the user's Google Account in Firestore
+  Future<void> syncWithGoogleAccount({required UserProfile user, required String clientId}) async {
+    final emailDocId = AuthService.emailToDocId(user.email);
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 10);
+
+      final uri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/users/$emailDocId?key=$apiKey',
+      );
+
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      final body = await utf8.decoder.bind(resp).join();
+
+      if (resp.statusCode == 200) {
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+
+        final remoteBytes = int.tryParse(fields['bytes_slimmed']?['integerValue']?.toString() ?? '') ?? 0;
+        final remoteSaved = int.tryParse(fields['bytes_saved']?['integerValue']?.toString() ?? '') ?? 0;
+        final remoteFiles = int.tryParse(fields['files_count']?['integerValue']?.toString() ?? '') ?? 0;
+        final remoteQuota = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ?? _quotaLimitBytes;
+
+        final reconciledBytes = max(_totalBytesSlimmed, remoteBytes);
+        final reconciledSaved = max(_totalBytesSaved, remoteSaved);
+        final reconciledFiles = max(_totalFilesSlimmed, remoteFiles);
+        final reconciledQuota = max(_quotaLimitBytes, remoteQuota);
+
+        _totalBytesSlimmed = reconciledBytes;
+        _totalBytesSaved = reconciledSaved;
+        _totalFilesSlimmed = reconciledFiles;
+        _quotaLimitBytes = reconciledQuota;
+
+        await _keychain.setBytesSlimmed(_totalBytesSlimmed);
+        await _keychain.setBytesSaved(_totalBytesSaved);
+        await _keychain.setFilesSlimmed(_totalFilesSlimmed);
+        await _keychain.setQuotaLimitBytes(_quotaLimitBytes);
+        await _saveLocalCache();
+
+        // Check if account has an active commercial license purchased on another machine
+        final isLicenseActive = fields['is_license_activated']?['booleanValue'] == true;
+        final paymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
+        if (isLicenseActive || paymentStatus == 'PAID' || paymentStatus == 'SUCCESS') {
+          if (!_isLicenseActivated) {
+            final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+            final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
+            await activateLicense(
+              licenseKey: internalLicenseId,
+              validityDays: validityDays,
+              quotaBytes: reconciledQuota,
+            );
+          }
+        }
+
+        // Push reconciled counts back to user doc
+        await _patchUserQuotaToFirestore(client, emailDocId);
+        // Also update local client document to link user
+        if (clientId.isNotEmpty) {
+          await _patchQuotaToFirestore(client, clientId);
+        }
+        notifyListeners();
+      } else if (resp.statusCode == 404) {
+        // First time Google user document: push current local counts
+        await _patchUserQuotaToFirestore(client, emailDocId);
+      }
+      client.close();
+    } catch (e) {
+      debugPrint('Sync with Google account error: $e');
+    }
+  }
+
+  Future<void> _patchUserQuotaToFirestore(HttpClient client, String emailDocId) async {
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    final payload = {
+      'fields': {
+        'bytes_slimmed': {'integerValue': _totalBytesSlimmed.toString()},
+        'tb_slimmed': {'doubleValue': double.parse(totalTbSlimmed.toStringAsFixed(4))},
+        'bytes_saved': {'integerValue': _totalBytesSaved.toString()},
+        'files_count': {'integerValue': _totalFilesSlimmed.toString()},
+        'quota_limit_bytes': {'integerValue': _quotaLimitBytes.toString()},
+        'quota_limit_tb': {'doubleValue': double.parse(quotaLimitTb.toStringAsFixed(1))},
+        'last_slimmed_at': {'stringValue': _lastSlimmedAt?.toIso8601String() ?? nowIso},
+      }
+    };
+
+    final fieldsQuery = 'updateMask.fieldPaths=bytes_slimmed'
+        '&updateMask.fieldPaths=tb_slimmed'
+        '&updateMask.fieldPaths=bytes_saved'
+        '&updateMask.fieldPaths=files_count'
+        '&updateMask.fieldPaths=quota_limit_bytes'
+        '&updateMask.fieldPaths=quota_limit_tb'
+        '&updateMask.fieldPaths=last_slimmed_at';
+
+    final uri = Uri.parse(
+      'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/users/$emailDocId?$fieldsQuery&key=$apiKey',
+    );
+    final req = await client.patchUrl(uri);
+    req.headers.contentType = ContentType.json;
+    req.write(jsonEncode(payload));
+    final resp = await req.close();
+    await resp.drain();
   }
 }

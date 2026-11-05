@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_activation.dart';
+import '../models/user_profile.dart';
 import '../models/video_task.dart';
 import '../services/activation_service.dart';
+import '../services/auth_service.dart';
 import '../services/compression_engine.dart';
 import '../services/keychain_service.dart';
 import '../services/quota_service.dart';
@@ -24,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final CompressionEngine _engine = CompressionEngine();
   final ActivationService _activationService = ActivationService();
   final QuotaService _quotaService = QuotaService();
+  final AuthService _authService = AuthService();
   final List<VideoTask> _tasks = [];
   String _activeEncoder = 'Detecting...';
   bool _isProcessingBatch = false;
@@ -47,6 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _quotaService.addListener(_onQuotaUpdated);
+    _authService.addListener(_onQuotaUpdated);
+    _authService.initialize();
     _checkActivation();
     _detectEncoder();
     _checkInitialFile();
@@ -55,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _quotaService.removeListener(_onQuotaUpdated);
+    _authService.removeListener(_onQuotaUpdated);
     super.dispose();
   }
 
@@ -230,6 +236,15 @@ class _HomeScreenState extends State<HomeScreen> {
       final outPath = await _engine.compressVideo(
         task: task,
         customOutputPath: customTarget,
+        onLiveProgressCheck: (progress) {
+          if (_quotaService.isTrialMode) {
+            final currentProcessed = (task.inputFileSize * progress).round();
+            if (_quotaService.isHardLimitExceeded(additionalBytes: currentProcessed)) {
+              return false; // Stop slimming immediately if it surpasses 2.5 GB trial ceiling!
+            }
+          }
+          return true;
+        },
         onProgress: (progress, fps, speed, eta) {
           if (mounted) {
             setState(() {
@@ -281,6 +296,23 @@ class _HomeScreenState extends State<HomeScreen> {
         outputBytes: outSize,
         clientId: clientId,
       );
+    } on QuotaHardLimitExceededException catch (_) {
+      if (mounted) {
+        setState(() {
+          task.status = TaskStatus.idle;
+          task.progress = 0.0;
+          task.errorMessage = 'Trial limit of 2.5 GB reached during processing. Upgrade to continue.';
+        });
+
+        // Prompt payment dialog
+        await _showQuotaExceededDialog();
+
+        // If license was activated, automatically continue / restart slimming!
+        if (_quotaService.isLicenseActivated && mounted) {
+          _startCompression(task);
+        }
+      }
+      return;
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -291,8 +323,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showQuotaExceededDialog() {
-    showDialog(
+  Future<bool?> _showQuotaExceededDialog() {
+    return showDialog<bool>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => UpiPaymentDialog(
@@ -680,6 +712,336 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _googleAuthButtonOrProfile() {
+    final user = _authService.currentUser;
+    if (user == null || !user.isValid) {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+        child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: const Color(0xFF161B22),
+            foregroundColor: Colors.white,
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          ),
+          onPressed: _showGoogleSignInModal,
+          icon: Image.network(
+            'https://www.gstatic.com/images/branding/product/2x/googleg_48dp.png',
+            width: 14,
+            height: 14,
+            errorBuilder: (_, __, ___) => const Icon(Icons.account_circle_outlined, size: 14, color: Color(0xFF00E5FF)),
+          ),
+          label: const Text(
+            'Sign in with Google',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+        ),
+      );
+    }
+
+    return Tooltip(
+      message: 'Signed in as ${user.email}\nClick to view cross-device sync & account',
+      child: InkWell(
+        onTap: () => _showAccountProfileModal(user),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF161B22),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.4), width: 1.2),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 9,
+                backgroundColor: const Color(0xFF00E5FF),
+                backgroundImage: user.photoUrl != null && user.photoUrl!.isNotEmpty ? NetworkImage(user.photoUrl!) : null,
+                child: user.photoUrl == null || user.photoUrl!.isEmpty
+                    ? Text(
+                        user.displayName.isNotEmpty ? user.displayName[0].toUpperCase() : 'G',
+                        style: const TextStyle(fontSize: 10, color: Colors.black, fontWeight: FontWeight.bold),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: Text(
+                  user.displayName.isNotEmpty ? user.displayName : user.email,
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showGoogleSignInModal() {
+    final emailCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => AlertDialog(
+          backgroundColor: const Color(0xFF161B22),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.verified_user_rounded, color: Color(0xFF00E5FF), size: 22),
+              SizedBox(width: 8),
+              Text(
+                'Connect Google Account',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Connecting your Google account links your quota and 10 TB license across all your PCs (office workstation, field laptop, or new PC).',
+                  style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.5),
+                ),
+                const SizedBox(height: 18),
+
+                // Browser OAuth Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black87,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            setModalState(() => isSubmitting = true);
+                            final clientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+                            try {
+                              final profile = await _authService.signInWithGoogle(hardwareClientId: clientId);
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              if (profile != null && mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Signed in as ${profile.email}. Quota synced across PCs!'),
+                                    backgroundColor: const Color(0xFF00E676),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (ctx.mounted) {
+                                setModalState(() => isSubmitting = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Sign-in cancelled or failed: $e'), backgroundColor: Colors.redAccent),
+                                );
+                              }
+                            }
+                          },
+                    icon: Image.network(
+                      'https://www.gstatic.com/images/branding/product/2x/googleg_48dp.png',
+                      width: 18,
+                      height: 18,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.login, size: 18, color: Colors.black87),
+                    ),
+                    label: Text(
+                      isSubmitting ? 'Waiting for browser sign-in...' : 'Sign in with Google in Browser',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                const Row(
+                  children: [
+                    Expanded(child: Divider(color: Color(0xFF30363D))),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Text('OR LINK BY EMAIL', style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                    Expanded(child: Divider(color: Color(0xFF30363D))),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                TextField(
+                  controller: emailCtrl,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'name@gmail.com',
+                    hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                    filled: true,
+                    fillColor: const Color(0xFF0D1117),
+                    prefixIcon: const Icon(Icons.email_outlined, color: Colors.white54, size: 18),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF30363D))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF30363D))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF00E5FF))),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF00E5FF),
+                      side: const BorderSide(color: Color(0xFF00E5FF)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            final email = emailCtrl.text.trim();
+                            if (!email.contains('@')) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Please enter a valid Google email address'), backgroundColor: Colors.orange),
+                              );
+                              return;
+                            }
+                            setModalState(() => isSubmitting = true);
+                            final clientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+                            final profile = await _authService.signInWithGoogle(
+                              hardwareClientId: clientId,
+                              preferredEmail: email,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (profile != null && mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Connected to ${profile.email}! Quota linked.'),
+                                  backgroundColor: const Color(0xFF00E676),
+                                ),
+                              );
+                            }
+                          },
+                    child: const Text('Link Google Email & Restore License', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAccountProfileModal(UserProfile user) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF161B22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.account_circle, color: Color(0xFF00E5FF), size: 22),
+            SizedBox(width: 8),
+            Text('Account & Multi-Device Sync', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D1117),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF30363D)),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: const Color(0xFF00E5FF),
+                      backgroundImage: user.photoUrl != null && user.photoUrl!.isNotEmpty ? NetworkImage(user.photoUrl!) : null,
+                      child: user.photoUrl == null || user.photoUrl!.isEmpty
+                          ? Text(user.displayName.isNotEmpty ? user.displayName[0].toUpperCase() : 'G', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black))
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(user.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                          const SizedBox(height: 2),
+                          Text(user.email, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _dialogInfoRow('Account Plan', _quotaService.isLicenseActivated ? 'Pro Studio 10 TB (Active ✅)' : 'Free Trial (2.0 GB)'),
+              const Divider(color: Color(0xFF21262D)),
+              _dialogInfoRow('Total Slimmed', _quotaService.isTrialMode ? '${_quotaService.trialUsedGb.toStringAsFixed(2)} GB / 2.0 GB' : '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB'),
+              const Divider(color: Color(0xFF21262D)),
+              _dialogInfoRow('Total Saved', '${_quotaService.totalTbSaved.toStringAsFixed(2)} TB'),
+              const Divider(color: Color(0xFF21262D)),
+              _dialogInfoRow('Files Slimmed', '${_quotaService.totalFilesSlimmed} videos'),
+              const Divider(color: Color(0xFF21262D)),
+              _dialogInfoRow('Cross-PC Sync', 'Active (All PCs linked to this Google account share this quota)'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final clientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+              await _quotaService.syncWithGoogleAccount(user: user, clientId: clientId);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Account quota synced with cloud!'), backgroundColor: Color(0xFF00E676)),
+                );
+              }
+            },
+            child: const Text('Sync Now', style: TextStyle(color: Color(0xFF00E5FF))),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _authService.signOut();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Signed out of Google account.')),
+                );
+              }
+            },
+            child: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close', style: TextStyle(color: Colors.white54)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOfflineGraceBanner() {
     if (_activation == null || _activation!.status != ActivationStatus.offlineGrace) {
       return const SizedBox.shrink();
@@ -790,6 +1152,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          // Google Sign-In / User Profile
+          _googleAuthButtonOrProfile(),
           // License pill
           if (_activation != null)
             _licenseStatusBadge(_activation!),

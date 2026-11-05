@@ -22,6 +22,19 @@ class ProjectScanResult {
   });
 }
 
+class QuotaHardLimitExceededException implements Exception {
+  final int totalProcessedBytes;
+  final int hardLimitBytes;
+
+  const QuotaHardLimitExceededException({
+    required this.totalProcessedBytes,
+    required this.hardLimitBytes,
+  });
+
+  @override
+  String toString() => 'Trial processing hard limit (2.5 GB) exceeded during file slimming.';
+}
+
 class CompressionEngine {
   Process? _activeProcess;
   bool _isCancelled = false;
@@ -319,6 +332,7 @@ class CompressionEngine {
   Future<String> compressVideo({
     required VideoTask task,
     String? customOutputPath,
+    bool Function(double currentProgress)? onLiveProgressCheck,
     required void Function(
       double progress,
       double currentFps,
@@ -336,9 +350,11 @@ class CompressionEngine {
         task: task,
         outputPath: outputPath,
         encoder: preferredEncoder,
+        onLiveProgressCheck: onLiveProgressCheck,
         onProgress: onProgress,
       );
     } catch (e) {
+      if (e is QuotaHardLimitExceededException) rethrow;
       if (_isCancelled) rethrow;
 
       // If hardware encoder failed on this machine (e.g. driver mismatch, GPU memory),
@@ -353,6 +369,7 @@ class CompressionEngine {
           task: task,
           outputPath: outputPath,
           encoder: 'libx265',
+          onLiveProgressCheck: onLiveProgressCheck,
           onProgress: onProgress,
         );
       }
@@ -364,6 +381,7 @@ class CompressionEngine {
     required VideoTask task,
     required String outputPath,
     required String encoder,
+    bool Function(double currentProgress)? onLiveProgressCheck,
     required void Function(
       double progress,
       double currentFps,
@@ -509,6 +527,12 @@ class CompressionEngine {
       }
 
       onProgress(progress, currentFps, speedMultiplier, eta);
+
+      // Enforce live hard trial limit guard (2.5 GB max during live compression)
+      if (onLiveProgressCheck != null && !onLiveProgressCheck(progress)) {
+        _isCancelled = true;
+        process.kill(ProcessSignal.sigkill);
+      }
     });
 
     final exitCode = await process.exitCode;
@@ -516,8 +540,17 @@ class CompressionEngine {
 
     if (_isCancelled) {
       if (await File(outputPath).exists()) {
-        await File(outputPath).delete();
+        try { await File(outputPath).delete(); } catch (_) {}
       }
+
+      // Check if cancellation was triggered by live hard trial limit guard
+      if (onLiveProgressCheck != null && !onLiveProgressCheck(task.progress)) {
+        throw QuotaHardLimitExceededException(
+          totalProcessedBytes: (task.inputFileSize * task.progress).round(),
+          hardLimitBytes: 2684354560,
+        );
+      }
+
       throw Exception('Compression cancelled by user');
     }
 
