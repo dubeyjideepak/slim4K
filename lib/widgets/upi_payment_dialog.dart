@@ -233,26 +233,28 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
               quotaBytes = QuotaService.defaultQuotaBytes;
               validityDays = 365;
 
-              // Immediately write activation back to this client hardware doc in Firestore
-              if (_clientId.isNotEmpty) {
-                final activateUri = Uri.parse(
-                  'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$_clientId'
-                  '?updateMask.fieldPaths=is_license_activated&updateMask.fieldPaths=payment_status&updateMask.fieldPaths=quota_limit_bytes&updateMask.fieldPaths=quota_limit_tb&updateMask.fieldPaths=validity_days&updateMask.fieldPaths=internal_license_id&key=${QuotaService.apiKey}',
+              // Immediately write activation back to this Google account in Firestore
+              if (currentUser != null && currentUser.email.isNotEmpty) {
+                final emailDocId = AuthService.emailToDocId(currentUser.email);
+                final activateUserUri = Uri.parse(
+                  'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/user_$emailDocId'
+                  '?updateMask.fieldPaths=is_license_activated&updateMask.fieldPaths=payment_status&updateMask.fieldPaths=quota_limit_bytes&updateMask.fieldPaths=quota_limit_tb&updateMask.fieldPaths=validity_days&updateMask.fieldPaths=internal_license_id&updateMask.fieldPaths=max_active_devices&key=${QuotaService.apiKey}',
                 );
-                final patchReq = await client.patchUrl(activateUri);
-                patchReq.headers.contentType = ContentType.json;
-                patchReq.write(jsonEncode({
+                final patchUserReq = await client.patchUrl(activateUserUri);
+                patchUserReq.headers.contentType = ContentType.json;
+                patchUserReq.write(jsonEncode({
                   'fields': {
                     'is_license_activated': {'booleanValue': true},
                     'payment_status': {'stringValue': 'PAID'},
                     'quota_limit_bytes': {'integerValue': QuotaService.defaultQuotaBytes.toString()},
                     'quota_limit_tb': {'doubleValue': 10.0},
                     'validity_days': {'integerValue': '365'},
+                    'max_active_devices': {'integerValue': '1'},
                     'internal_license_id': {'stringValue': activatedLicenseId},
                   }
                 }));
-                final patchResp = await patchReq.close();
-                await patchResp.drain();
+                final patchUserResp = await patchUserReq.close();
+                await patchUserResp.drain();
               }
             }
           }

@@ -57,6 +57,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _detectEncoder();
     _checkInitialFile();
     _checkAppUpdates();
+
+    // Check single concurrent device rule on startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = _authService.currentUser;
+      if (user != null && _quotaService.isSeatLimitReached) {
+        _showSeatLimitModal(user);
+      }
+    });
   }
 
   @override
@@ -1378,8 +1386,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showSeatLimitModal(UserProfile user) {
     final activeDevices = _quotaService.activeSeats;
+    final otherDevice = activeDevices.isNotEmpty ? activeDevices.first : 'Another Computer';
+
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF161B22),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1387,88 +1398,91 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(Icons.devices, color: Colors.amber, size: 22),
             SizedBox(width: 8),
-            Text('Device Seat Limit (2 of 2 PCs Active)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Account Active on Another Device', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 440),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Your Slim4K 10 TB Studio license is currently active on 2 other workstations. To activate this computer, select an existing PC to replace:',
-                style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+              Text(
+                'This Google account (${user.email}) is currently active on workstation:\n',
+                style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
               ),
-              const SizedBox(height: 16),
-              if (activeDevices.isEmpty)
-                const Text('No registered devices found.', style: TextStyle(color: Colors.white54, fontSize: 12))
-              else
-                ...activeDevices.asMap().entries.map((entry) {
-                  final idx = entry.key + 1;
-                  final dev = entry.value;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0D1117),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFF30363D)),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D1117),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF30363D)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.computer, color: Color(0xFF00E5FF), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Active Workstation', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          Text(otherDevice, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                        ],
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.computer, color: Color(0xFF00E5FF), size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Workstation $idx', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                              Text(dev.length > 16 ? '${dev.substring(0, 16)}...' : dev, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                            ],
-                          ),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
-                            foregroundColor: Colors.redAccent,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            minimumSize: Size.zero,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                              side: const BorderSide(color: Colors.redAccent),
-                            ),
-                          ),
-                          onPressed: () async {
-                            Navigator.pop(ctx);
-                            final currentClientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
-                            final success = await _authService.transferDeviceSeat(
-                              user: user,
-                              oldHardwareClientId: dev,
-                              newHardwareClientId: currentClientId,
-                            );
-                            if (success) {
-                              await _quotaService.syncWithGoogleAccount(user: user, clientId: currentClientId);
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Seat transferred successfully! License is now active on this PC.'),
-                                    backgroundColor: Color(0xFF00E676),
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                          child: const Text('Replace & Activate Here', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Slim4K allows 1 device at a time per Google Account.\nTo use Slim4K on this computer, you must log out from the other workstation first.',
+                style: TextStyle(color: Colors.amber, fontSize: 12, height: 1.4),
+              ),
             ],
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _authService.signOut();
+            },
+            child: const Text('Cancel & Sign Out', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E5FF),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final currentClientId = _activation?.clientId ?? await KeychainService().getClientId() ?? '';
+              final success = await _authService.transferDeviceSeat(
+                user: user,
+                oldHardwareClientId: otherDevice,
+                newHardwareClientId: currentClientId,
+              );
+              if (success) {
+                await _quotaService.syncWithGoogleAccount(user: user, clientId: currentClientId);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Logged out other device! This workstation is now active.'),
+                      backgroundColor: Color(0xFF00E676),
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Log Out Other Device & Activate Here', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Keep as Free Trial', style: TextStyle(color: Colors.white54)),

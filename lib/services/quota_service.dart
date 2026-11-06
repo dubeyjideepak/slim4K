@@ -56,7 +56,7 @@ class QuotaService extends ChangeNotifier {
 
   List<String> _activeSeats = [];
   List<String> get activeSeats => _activeSeats;
-  int _maxSeats = 2;
+  int _maxSeats = 1;
   int get maxSeats => _maxSeats;
   bool _isSeatLimitReached = false;
   bool get isSeatLimitReached => _isSeatLimitReached;
@@ -173,27 +173,26 @@ class QuotaService extends ChangeNotifier {
       debugPrint('Error reading local quota cache: $e');
     }
 
-    // Best local/keychain values (enforce maximum)
+    // Best local/keychain values (initial fallback before auth sync)
     _totalBytesSlimmed = max(kcBytes, localBytes);
     _totalBytesSaved = max(kcSaved, localSaved);
     _totalFilesSlimmed = max(kcFiles, localFiles);
-    _quotaLimitBytes = max(kcQuota, localQuota);
+    _quotaLimitBytes = trialLimitBytes;
     _firstSlimmedAt = kcFirst ?? localFirst;
     _lastSlimmedAt = kcLast ?? localLast;
 
-    // Load license state
-    final kcActivated = await _keychain.isLicenseActivated();
-    final kcKey = await _keychain.getLicenseKey();
-    final kcExpires = await _keychain.getLicenseExpiresAt();
-    _isLicenseActivated = kcActivated;
-    _licenseKey = kcKey;
-    _licenseExpiresAt = kcExpires;
+    // Load license state strictly from current Google user, not machine hardware
+    final user = AuthService().currentUser;
+    if (user != null && user.isValid) {
+      await syncWithGoogleAccount(user: user, clientId: clientId);
+    } else {
+      _isLicenseActivated = false;
+      _licenseKey = null;
+      _quotaLimitBytes = trialLimitBytes;
+    }
 
     _isInitialized = true;
     notifyListeners();
-
-    // 3. Online sync with Firestore
-    await syncWithFirestore(clientId: clientId);
   }
 
   /// Activates a verified license key and unlocks 10 TB annual quota
@@ -564,20 +563,20 @@ class QuotaService extends ChangeNotifier {
         await _keychain.setQuotaLimitBytes(_quotaLimitBytes);
         await _saveLocalCache();
 
-        // Check 2-device seat allocation limit
+        // Check 1-device seat allocation limit
         final rawDevices = fields['active_devices']?['arrayValue']?['values'] as List<dynamic>?;
         _activeSeats = rawDevices != null
             ? rawDevices.map((v) => v['stringValue']?.toString() ?? '').where((s) => s.isNotEmpty).toList()
             : <String>[];
-        _maxSeats = int.tryParse(fields['max_active_devices']?['integerValue']?.toString() ?? '') ?? 2;
+        _maxSeats = 1;
         _accountInvoiceId = fields['invoice_id']?['stringValue'];
 
         final isDeviceRegistered = clientId.isNotEmpty && _activeSeats.contains(clientId);
-        _isSeatLimitReached = !isDeviceRegistered && _activeSeats.length >= _maxSeats;
+        _isSeatLimitReached = !isDeviceRegistered && _activeSeats.isNotEmpty;
 
         // Check if account has an active commercial license
         if (hasPaid) {
-          // Only auto-unlock this computer if it is within the 2-seat limit
+          // Only auto-unlock this computer if it is the 1 active device
           if (!_isSeatLimitReached) {
             final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
             final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
@@ -586,6 +585,9 @@ class QuotaService extends ChangeNotifier {
               validityDays: validityDays,
               quotaBytes: _quotaLimitBytes,
             );
+          } else {
+            _isLicenseActivated = false;
+            await _keychain.setLicenseActivated(false);
           }
         } else {
           // Unactivated Google user: enforce trial limit
@@ -597,10 +599,6 @@ class QuotaService extends ChangeNotifier {
 
         // Push reconciled counts back to user doc
         await _patchUserQuotaToFirestore(client, emailDocId);
-        // Also update local client document to link user
-        if (clientId.isNotEmpty) {
-          await _patchQuotaToFirestore(client, clientId);
-        }
         notifyListeners();
       } else if (resp.statusCode == 404) {
         // Brand new Google user: fresh 2 GB trial
