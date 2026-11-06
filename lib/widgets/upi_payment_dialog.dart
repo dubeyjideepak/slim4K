@@ -208,6 +208,57 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
         }
       }
 
+      // 3. Fallback broadcast check: if any payment succeeded within the active session window
+      if (!activated) {
+        final latestUri = Uri.parse(
+          'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/latest_payment?key=${QuotaService.apiKey}',
+        );
+        final latestReq = await client.getUrl(latestUri);
+        final latestResp = await latestReq.close();
+        if (latestResp.statusCode == 200) {
+          final latestBody = await utf8.decoder.bind(latestResp).join();
+          final latestDoc = jsonDecode(latestBody) as Map<String, dynamic>;
+          final latestFields = latestDoc['fields'] as Map<String, dynamic>? ?? {};
+
+          final status = latestFields['payment_status']?['stringValue']?.toUpperCase();
+          final paidAtStr = latestFields['paid_at']?['stringValue'];
+          final paidLicenseId = latestFields['internal_license_id']?['stringValue'] ?? 'UPI-AUTO-$_clientId';
+
+          if (status == 'PAID' && paidAtStr != null) {
+            final paidAt = DateTime.tryParse(paidAtStr);
+            // Check if payment was confirmed within the last 20 minutes
+            if (paidAt != null && DateTime.now().difference(paidAt).inMinutes < 20) {
+              activated = true;
+              activatedLicenseId = paidLicenseId;
+              quotaBytes = QuotaService.defaultQuotaBytes;
+              validityDays = 365;
+
+              // Immediately write activation back to this client hardware doc in Firestore
+              if (_clientId.isNotEmpty) {
+                final activateUri = Uri.parse(
+                  'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$_clientId'
+                  '?updateMask.fieldPaths=is_license_activated&updateMask.fieldPaths=payment_status&updateMask.fieldPaths=quota_limit_bytes&updateMask.fieldPaths=quota_limit_tb&updateMask.fieldPaths=validity_days&updateMask.fieldPaths=internal_license_id&key=${QuotaService.apiKey}',
+                );
+                final patchReq = await client.patchUrl(activateUri);
+                patchReq.headers.contentType = ContentType.json;
+                patchReq.write(jsonEncode({
+                  'fields': {
+                    'is_license_activated': {'booleanValue': true},
+                    'payment_status': {'stringValue': 'PAID'},
+                    'quota_limit_bytes': {'integerValue': QuotaService.defaultQuotaBytes.toString()},
+                    'quota_limit_tb': {'doubleValue': 10.0},
+                    'validity_days': {'integerValue': '365'},
+                    'internal_license_id': {'stringValue': activatedLicenseId},
+                  }
+                }));
+                final patchResp = await patchReq.close();
+                await patchResp.drain();
+              }
+            }
+          }
+        }
+      }
+
       if (activated) {
         _pollingTimer?.cancel();
 
