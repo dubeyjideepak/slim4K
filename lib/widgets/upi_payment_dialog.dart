@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/activation_service.dart';
+import '../services/auth_service.dart';
 import '../services/quota_service.dart';
 
 class UpiPaymentDialog extends StatefulWidget {
@@ -148,54 +149,96 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 6);
+      bool activated = false;
+      String activatedLicenseId = 'UPI-AUTO-$_clientId';
+      int quotaBytes = QuotaService.defaultQuotaBytes;
+      int validityDays = 365;
 
-      // Check Firestore client document directly: apps/slim4k/clients/{clientId}
-      final uri = Uri.parse(
-        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$_clientId?key=${QuotaService.apiKey}',
-      );
+      // 1. Check Firestore client document directly: apps/slim4k/clients/{clientId}
+      if (_clientId.isNotEmpty) {
+        final uri = Uri.parse(
+          'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/$_clientId?key=${QuotaService.apiKey}',
+        );
+        final req = await client.getUrl(uri);
+        final resp = await req.close();
+        final body = await utf8.decoder.bind(resp).join();
 
-      final req = await client.getUrl(uri);
-      final resp = await req.close();
-      final body = await utf8.decoder.bind(resp).join();
+        if (resp.statusCode == 200) {
+          final doc = jsonDecode(body) as Map<String, dynamic>;
+          final fields = doc['fields'] as Map<String, dynamic>? ?? {};
 
-      if (resp.statusCode == 200) {
-        final doc = jsonDecode(body) as Map<String, dynamic>;
-        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+          final isLicenseActivated = fields['is_license_activated']?['booleanValue'] == true;
+          final paymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
 
-        final isLicenseActivated = fields['is_license_activated']?['booleanValue'] == true;
-        final paymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
-        final quotaBytes = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ??
-            QuotaService.defaultQuotaBytes;
-        final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
-        final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'UPI-AUTO-$_clientId';
-
-        if (isLicenseActivated || paymentStatus == 'PAID' || paymentStatus == 'SUCCESS') {
-          _pollingTimer?.cancel();
-
-          // Unlock 10 TB quota locally on this machine
-          await _quotaService.activateLicense(
-            licenseKey: internalLicenseId,
-            validityDays: validityDays,
-            quotaBytes: quotaBytes,
-          );
-
-          if (mounted) {
-            setState(() {
-              _isActivated = true;
-              _isChecking = false;
-              _statusFeedback = '🎉 Payment Confirmed! 10 TB Studio License is now ACTIVE.';
-            });
+          if (isLicenseActivated || paymentStatus == 'PAID' || paymentStatus == 'SUCCESS') {
+            activated = true;
+            quotaBytes = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ??
+                QuotaService.defaultQuotaBytes;
+            validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+            activatedLicenseId = fields['internal_license_id']?['stringValue'] ?? 'UPI-AUTO-$_clientId';
           }
-
-          client.close();
-
-          // Smoothly close dialog after 1.8 seconds so user sees confirmation
-          await Future.delayed(const Duration(milliseconds: 1800));
-          if (mounted) {
-            Navigator.of(context).pop(true);
-          }
-          return;
         }
+      }
+
+      // 2. Also check logged-in Google User document: apps/slim4k/clients/user_{emailDocId}
+      final currentUser = AuthService().currentUser;
+      if (!activated && currentUser != null && currentUser.email.isNotEmpty) {
+        final emailDocId = AuthService.emailToDocId(currentUser.email);
+        final userUri = Uri.parse(
+          'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/user_$emailDocId?key=${QuotaService.apiKey}',
+        );
+        final userReq = await client.getUrl(userUri);
+        final userResp = await userReq.close();
+        final userBody = await utf8.decoder.bind(userResp).join();
+
+        if (userResp.statusCode == 200) {
+          final userDoc = jsonDecode(userBody) as Map<String, dynamic>;
+          final userFields = userDoc['fields'] as Map<String, dynamic>? ?? {};
+
+          final isUserActivated = userFields['is_license_activated']?['booleanValue'] == true;
+          final userPayStatus = userFields['payment_status']?['stringValue']?.toUpperCase();
+
+          if (isUserActivated || userPayStatus == 'PAID' || userPayStatus == 'SUCCESS') {
+            activated = true;
+            quotaBytes = int.tryParse(userFields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ??
+                QuotaService.defaultQuotaBytes;
+            validityDays = int.tryParse(userFields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+            activatedLicenseId = userFields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
+          }
+        }
+      }
+
+      if (activated) {
+        _pollingTimer?.cancel();
+
+        // Unlock 10 TB quota locally on this machine
+        await _quotaService.activateLicense(
+          licenseKey: activatedLicenseId,
+          validityDays: validityDays,
+          quotaBytes: quotaBytes,
+        );
+
+        // Also register seat with Google account if logged in
+        if (currentUser != null && _clientId.isNotEmpty) {
+          await _quotaService.syncWithGoogleAccount(user: currentUser, clientId: _clientId);
+        }
+
+        if (mounted) {
+          setState(() {
+            _isActivated = true;
+            _isChecking = false;
+            _statusFeedback = '🎉 Payment Confirmed! 10 TB Studio License is now ACTIVE.';
+          });
+        }
+
+        client.close();
+
+        // Smoothly close dialog after 1.8 seconds so user sees confirmation
+        await Future.delayed(const Duration(milliseconds: 1800));
+        if (mounted) {
+          Navigator.of(context).pop(true);
+        }
+        return;
       }
 
       client.close();
@@ -216,7 +259,21 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   }
 
   void _openCashfreeCheckout() {
-    Clipboard.setData(ClipboardData(text: _cashfreePaymentUrl));
+    final user = AuthService().currentUser;
+    var targetUrl = _cashfreePaymentUrl;
+    final separator = targetUrl.contains('?') ? '&' : '?';
+    final queryParams = <String>[];
+    if (user != null && user.email.isNotEmpty) {
+      queryParams.add('customer_email=${Uri.encodeComponent(user.email)}');
+    }
+    if (_clientId.isNotEmpty) {
+      queryParams.add('customer_id=${Uri.encodeComponent(_clientId)}');
+    }
+    if (queryParams.isNotEmpty) {
+      targetUrl = '$targetUrl$separator${queryParams.join('&')}';
+    }
+
+    Clipboard.setData(ClipboardData(text: targetUrl));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Opening secure Cashfree checkout in your browser...'),
@@ -226,9 +283,11 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
     );
     try {
       if (!kIsWeb && Platform.isWindows) {
-        Process.run('cmd', ['/c', 'start', '', _cashfreePaymentUrl]);
+        Process.run('powershell', ['-NoProfile', '-Command', 'Start-Process', '"$targetUrl"']);
       } else if (!kIsWeb && Platform.isMacOS) {
-        Process.run('open', [_cashfreePaymentUrl]);
+        Process.run('open', [targetUrl]);
+      } else if (!kIsWeb && Platform.isLinux) {
+        Process.run('xdg-open', [targetUrl]);
       }
     } catch (_) {}
   }

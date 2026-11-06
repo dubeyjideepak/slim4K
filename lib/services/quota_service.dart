@@ -503,6 +503,27 @@ class QuotaService extends ChangeNotifier {
     await resp2.drain();
   }
 
+  /// Resets in-memory and local quota metrics when switching Google accounts
+  Future<void> resetForUserSwitch() async {
+    _isLicenseActivated = false;
+    _licenseKey = null;
+    _licenseExpiresAt = null;
+    _totalBytesSlimmed = 0;
+    _totalBytesSaved = 0;
+    _totalFilesSlimmed = 0;
+    _quotaLimitBytes = trialLimitBytes;
+    _activeSeats = [];
+    _isSeatLimitReached = false;
+    _accountInvoiceId = null;
+    await _keychain.setLicenseActivated(false);
+    await _keychain.setBytesSlimmed(0);
+    await _keychain.setBytesSaved(0);
+    await _keychain.setFilesSlimmed(0);
+    await _keychain.setQuotaLimitBytes(trialLimitBytes);
+    await _saveLocalCache();
+    notifyListeners();
+  }
+
   /// Synchronizes cumulative quota and active license with the user's Google Account in Firestore
   Future<void> syncWithGoogleAccount({required UserProfile user, required String clientId}) async {
     final emailDocId = AuthService.emailToDocId(user.email);
@@ -525,17 +546,17 @@ class QuotaService extends ChangeNotifier {
         final remoteBytes = int.tryParse(fields['bytes_slimmed']?['integerValue']?.toString() ?? '') ?? 0;
         final remoteSaved = int.tryParse(fields['bytes_saved']?['integerValue']?.toString() ?? '') ?? 0;
         final remoteFiles = int.tryParse(fields['files_count']?['integerValue']?.toString() ?? '') ?? 0;
-        final remoteQuota = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ?? _quotaLimitBytes;
+        final isLicenseActive = fields['is_license_activated']?['booleanValue'] == true;
+        final paymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
+        final hasPaid = isLicenseActive || paymentStatus == 'PAID' || paymentStatus == 'SUCCESS';
 
-        final reconciledBytes = max(_totalBytesSlimmed, remoteBytes);
-        final reconciledSaved = max(_totalBytesSaved, remoteSaved);
-        final reconciledFiles = max(_totalFilesSlimmed, remoteFiles);
-        final reconciledQuota = max(_quotaLimitBytes, remoteQuota);
+        final remoteQuota = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ??
+            (hasPaid ? defaultQuotaBytes : trialLimitBytes);
 
-        _totalBytesSlimmed = reconciledBytes;
-        _totalBytesSaved = reconciledSaved;
-        _totalFilesSlimmed = reconciledFiles;
-        _quotaLimitBytes = reconciledQuota;
+        _totalBytesSlimmed = remoteBytes;
+        _totalBytesSaved = remoteSaved;
+        _totalFilesSlimmed = remoteFiles;
+        _quotaLimitBytes = remoteQuota;
 
         await _keychain.setBytesSlimmed(_totalBytesSlimmed);
         await _keychain.setBytesSaved(_totalBytesSaved);
@@ -554,22 +575,24 @@ class QuotaService extends ChangeNotifier {
         final isDeviceRegistered = clientId.isNotEmpty && _activeSeats.contains(clientId);
         _isSeatLimitReached = !isDeviceRegistered && _activeSeats.length >= _maxSeats;
 
-        // Check if account has an active commercial license purchased on another machine
-        final isLicenseActive = fields['is_license_activated']?['booleanValue'] == true;
-        final paymentStatus = fields['payment_status']?['stringValue']?.toUpperCase();
-        if (isLicenseActive || paymentStatus == 'PAID' || paymentStatus == 'SUCCESS') {
-          if (!_isLicenseActivated) {
-            // Only auto-unlock this computer if it is within the 2-seat limit
-            if (!_isSeatLimitReached) {
-              final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
-              final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
-              await activateLicense(
-                licenseKey: internalLicenseId,
-                validityDays: validityDays,
-                quotaBytes: reconciledQuota,
-              );
-            }
+        // Check if account has an active commercial license
+        if (hasPaid) {
+          // Only auto-unlock this computer if it is within the 2-seat limit
+          if (!_isSeatLimitReached) {
+            final validityDays = int.tryParse(fields['validity_days']?['integerValue']?.toString() ?? '') ?? 365;
+            final internalLicenseId = fields['internal_license_id']?['stringValue'] ?? 'GOOGLE-$emailDocId';
+            await activateLicense(
+              licenseKey: internalLicenseId,
+              validityDays: validityDays,
+              quotaBytes: _quotaLimitBytes,
+            );
           }
+        } else {
+          // Unactivated Google user: enforce trial limit
+          _isLicenseActivated = false;
+          _licenseKey = null;
+          await _keychain.setLicenseActivated(false);
+          await _saveLocalCache();
         }
 
         // Push reconciled counts back to user doc
@@ -580,8 +603,21 @@ class QuotaService extends ChangeNotifier {
         }
         notifyListeners();
       } else if (resp.statusCode == 404) {
-        // First time Google user document: push current local counts
+        // Brand new Google user: fresh 2 GB trial
+        _totalBytesSlimmed = 0;
+        _totalBytesSaved = 0;
+        _totalFilesSlimmed = 0;
+        _isLicenseActivated = false;
+        _licenseKey = null;
+        _quotaLimitBytes = trialLimitBytes;
+        await _keychain.setLicenseActivated(false);
+        await _keychain.setBytesSlimmed(0);
+        await _keychain.setBytesSaved(0);
+        await _keychain.setFilesSlimmed(0);
+        await _keychain.setQuotaLimitBytes(trialLimitBytes);
+        await _saveLocalCache();
         await _patchUserQuotaToFirestore(client, emailDocId);
+        notifyListeners();
       }
       client.close();
     } catch (e) {

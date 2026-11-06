@@ -491,10 +491,11 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Sign out
+  /// Sign out and reset local quota tracker for clean user switching
   Future<void> signOut({String? hardwareClientId}) async {
     _currentUser = null;
     await _keychain.clearGoogleUserProfile();
+    await QuotaService().resetForUserSwitch();
     notifyListeners();
   }
 }
