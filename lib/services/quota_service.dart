@@ -141,7 +141,6 @@ class QuotaService extends ChangeNotifier {
     final kcBytes = await _keychain.getBytesSlimmed() ?? 0;
     final kcSaved = await _keychain.getBytesSaved() ?? 0;
     final kcFiles = await _keychain.getFilesSlimmed() ?? 0;
-    final kcQuota = await _keychain.getQuotaLimitBytes() ?? defaultQuotaBytes;
     final kcFirst = await _keychain.getFirstSlimmedAt();
     final kcLast = await _keychain.getLastSlimmedAt();
 
@@ -149,7 +148,6 @@ class QuotaService extends ChangeNotifier {
     int localBytes = 0;
     int localSaved = 0;
     int localFiles = 0;
-    int localQuota = defaultQuotaBytes;
     DateTime? localFirst;
     DateTime? localLast;
 
@@ -161,7 +159,6 @@ class QuotaService extends ChangeNotifier {
         localBytes = json['bytes_slimmed'] as int? ?? 0;
         localSaved = json['bytes_saved'] as int? ?? 0;
         localFiles = json['files_count'] as int? ?? 0;
-        localQuota = json['quota_limit_bytes'] as int? ?? defaultQuotaBytes;
         if (json['first_slimmed_at'] != null) {
           localFirst = DateTime.tryParse(json['first_slimmed_at'].toString());
         }

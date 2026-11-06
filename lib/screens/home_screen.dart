@@ -1483,14 +1483,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Keep as Free Trial', style: TextStyle(color: Colors.white54)),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildOfflineGraceBanner() {
     if (_activation == null || _activation!.status != ActivationStatus.offlineGrace) {
