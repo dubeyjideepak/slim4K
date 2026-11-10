@@ -427,12 +427,12 @@ class _HomeScreenState extends State<HomeScreen> {
           return true;
         },
         onProgress: (progress, fps, speed, eta) {
-          if (mounted) {
+          if (mounted && progress >= task.progress) {
             setState(() {
               task.progress = progress;
-              task.currentFps = fps;
-              task.speedMultiplier = speed;
-              task.estimatedTimeRemaining = eta;
+              if (fps > 0) task.currentFps = fps;
+              if (speed > 0) task.speedMultiplier = speed;
+              if (eta != null) task.estimatedTimeRemaining = eta;
             });
           }
         },

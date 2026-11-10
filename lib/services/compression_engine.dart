@@ -487,6 +487,10 @@ class CompressionEngine {
     final speedRegex = RegExp(r'speed=\s*(\d+\.?\d*)x');
 
     final List<String> recentStderr = [];
+    double lastKnownProgress = 0.0;
+    double lastKnownFps = 0.0;
+    double lastKnownSpeed = 1.0;
+    Duration? lastKnownEta;
 
     process.stderr.transform(utf8.decoder).listen((line) {
       if (_isCancelled) return;
@@ -494,44 +498,40 @@ class CompressionEngine {
       recentStderr.add(line);
       if (recentStderr.length > 30) recentStderr.removeAt(0);
 
-      double? currentSec;
       final timeMatch = timeRegex.firstMatch(line);
-      if (timeMatch != null) {
+      if (timeMatch != null && totalDurationSec > 0) {
         final hours = double.tryParse(timeMatch.group(1)!) ?? 0;
         final mins = double.tryParse(timeMatch.group(2)!) ?? 0;
         final secs = double.tryParse(timeMatch.group(3)!) ?? 0;
-        currentSec = (hours * 3600) + (mins * 60) + secs;
-      }
+        final currentSec = (hours * 3600) + (mins * 60) + secs;
 
-      double currentFps = 0.0;
-      final fpsMatch = fpsRegex.firstMatch(line);
-      if (fpsMatch != null) {
-        currentFps = double.tryParse(fpsMatch.group(1)!) ?? 0.0;
-      }
-
-      double speedMultiplier = 1.0;
-      final speedMatch = speedRegex.firstMatch(line);
-      if (speedMatch != null) {
-        speedMultiplier = double.tryParse(speedMatch.group(1)!) ?? 1.0;
-      }
-
-      double progress = 0.0;
-      Duration? eta;
-
-      if (currentSec != null && totalDurationSec > 0) {
-        progress = (currentSec / totalDurationSec).clamp(0.0, 0.99);
-        final remainingSec = totalDurationSec - currentSec;
-        if (speedMultiplier > 0 && remainingSec > 0) {
-          eta = Duration(seconds: (remainingSec / speedMultiplier).round());
+        final parsedProgress = (currentSec / totalDurationSec).clamp(0.0, 0.99);
+        if (parsedProgress > lastKnownProgress) {
+          lastKnownProgress = parsedProgress;
         }
-      }
 
-      onProgress(progress, currentFps, speedMultiplier, eta);
+        final fpsMatch = fpsRegex.firstMatch(line);
+        if (fpsMatch != null) {
+          lastKnownFps = double.tryParse(fpsMatch.group(1)!) ?? lastKnownFps;
+        }
 
-      // Enforce live hard trial limit guard (2.5 GB max during live compression)
-      if (onLiveProgressCheck != null && !onLiveProgressCheck(progress)) {
-        _isCancelled = true;
-        process.kill(ProcessSignal.sigkill);
+        final speedMatch = speedRegex.firstMatch(line);
+        if (speedMatch != null) {
+          lastKnownSpeed = double.tryParse(speedMatch.group(1)!) ?? lastKnownSpeed;
+        }
+
+        final remainingSec = totalDurationSec - currentSec;
+        if (lastKnownSpeed > 0 && remainingSec > 0) {
+          lastKnownEta = Duration(seconds: (remainingSec / lastKnownSpeed).round());
+        }
+
+        onProgress(lastKnownProgress, lastKnownFps, lastKnownSpeed, lastKnownEta);
+
+        // Enforce live hard trial limit guard (2.5 GB max during live compression)
+        if (onLiveProgressCheck != null && !onLiveProgressCheck(lastKnownProgress)) {
+          _isCancelled = true;
+          process.kill(ProcessSignal.sigkill);
+        }
       }
     });
 
