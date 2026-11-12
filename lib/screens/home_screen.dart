@@ -389,8 +389,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _startCompression(VideoTask task) async {
-    // Enforce 10 TB Annual Limit
+    // Enforce 10 TB Annual Limit or Trial Limit
     if (_quotaService.isQuotaExceeded) {
+      _showQuotaExceededDialog();
+      return;
+    }
+
+    // Pre-flight check: Trial mode cannot start a file that exceeds the remaining trial quota
+    if (_quotaService.isTrialMode &&
+        (_quotaService.totalBytesSlimmed + task.inputFileSize > _quotaService.currentTrialLimitBytes)) {
       _showQuotaExceededDialog();
       return;
     }
@@ -518,6 +525,16 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_quotaService.isQuotaExceeded) {
       _showQuotaExceededDialog();
       return;
+    }
+
+    if (_quotaService.isTrialMode) {
+      final pendingBytes = _tasks
+          .where((t) => t.status == TaskStatus.idle || t.status == TaskStatus.error)
+          .fold<int>(0, (sum, t) => sum + t.inputFileSize);
+      if (_quotaService.totalBytesSlimmed + pendingBytes > _quotaService.currentTrialLimitBytes) {
+        _showQuotaExceededDialog();
+        return;
+      }
     }
     setState(() => _isProcessingBatch = true);
 

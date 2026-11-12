@@ -549,10 +549,20 @@ class QuotaService extends ChangeNotifier {
         final remoteQuota = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ??
             (hasPaid ? defaultQuotaBytes : trialLimitBytes);
 
-        _totalBytesSlimmed = remoteBytes;
-        _totalBytesSaved = remoteSaved;
-        _totalFilesSlimmed = remoteFiles;
-        _quotaLimitBytes = remoteQuota;
+        // Reconcile with maximum (prevents local progress from being wiped by an empty or lower remote doc)
+        final reconciledBytes = max(_totalBytesSlimmed, remoteBytes);
+        final reconciledSaved = max(_totalBytesSaved, remoteSaved);
+        final reconciledFiles = max(_totalFilesSlimmed, remoteFiles);
+        final reconciledQuota = max(_quotaLimitBytes, remoteQuota);
+
+        final changedRemotely = reconciledBytes > remoteBytes ||
+            reconciledSaved > remoteSaved ||
+            reconciledFiles > remoteFiles;
+
+        _totalBytesSlimmed = reconciledBytes;
+        _totalBytesSaved = reconciledSaved;
+        _totalFilesSlimmed = reconciledFiles;
+        _quotaLimitBytes = reconciledQuota;
 
         await _keychain.setBytesSlimmed(_totalBytesSlimmed);
         await _keychain.setBytesSaved(_totalBytesSaved);
@@ -594,21 +604,17 @@ class QuotaService extends ChangeNotifier {
           await _saveLocalCache();
         }
 
-        // Push reconciled counts back to user doc
-        await _patchUserQuotaToFirestore(client, emailDocId);
+        // Push reconciled counts back to user doc if local was higher
+        if (changedRemotely || remoteBytes == 0) {
+          await _patchUserQuotaToFirestore(client, emailDocId);
+        }
         notifyListeners();
       } else if (resp.statusCode == 404) {
-        // Brand new Google user: fresh 2 GB trial
-        _totalBytesSlimmed = 0;
-        _totalBytesSaved = 0;
-        _totalFilesSlimmed = 0;
+        // Brand new Google user: register with trial quota
         _isLicenseActivated = false;
         _licenseKey = null;
         _quotaLimitBytes = trialLimitBytes;
         await _keychain.setLicenseActivated(false);
-        await _keychain.setBytesSlimmed(0);
-        await _keychain.setBytesSaved(0);
-        await _keychain.setFilesSlimmed(0);
         await _keychain.setQuotaLimitBytes(trialLimitBytes);
         await _saveLocalCache();
         await _patchUserQuotaToFirestore(client, emailDocId);

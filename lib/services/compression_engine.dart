@@ -491,6 +491,7 @@ class CompressionEngine {
     double lastKnownFps = 0.0;
     double lastKnownSpeed = 1.0;
     Duration? lastKnownEta;
+    bool wasHardLimitExceeded = false;
 
     process.stderr.transform(utf8.decoder).listen((line) {
       if (_isCancelled) return;
@@ -529,6 +530,7 @@ class CompressionEngine {
 
         // Enforce live hard trial limit guard (2.5 GB max during live compression)
         if (onLiveProgressCheck != null && !onLiveProgressCheck(lastKnownProgress)) {
+          wasHardLimitExceeded = true;
           _isCancelled = true;
           process.kill(ProcessSignal.sigkill);
         }
@@ -544,9 +546,9 @@ class CompressionEngine {
       }
 
       // Check if cancellation was triggered by live hard trial limit guard
-      if (onLiveProgressCheck != null && !onLiveProgressCheck(task.progress)) {
+      if (wasHardLimitExceeded || (onLiveProgressCheck != null && !onLiveProgressCheck(lastKnownProgress))) {
         throw QuotaHardLimitExceededException(
-          totalProcessedBytes: (task.inputFileSize * task.progress).round(),
+          totalProcessedBytes: (task.inputFileSize * lastKnownProgress).round(),
           hardLimitBytes: 2684354560,
         );
       }
