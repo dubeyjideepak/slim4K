@@ -178,6 +178,11 @@ class QuotaService extends ChangeNotifier {
     _firstSlimmedAt = kcFirst ?? localFirst;
     _lastSlimmedAt = kcLast ?? localLast;
 
+    // Sync with hardware client document in Firestore
+    if (clientId.isNotEmpty) {
+      await syncWithFirestore(clientId: clientId);
+    }
+
     // Load license state strictly from current Google user, not machine hardware
     final user = AuthService().currentUser;
     if (user != null && user.isValid) {

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -714,6 +715,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Feature 3: ROI Calculations
+  int get _liveEncodingBytes {
+    int bytes = 0;
+    for (final t in _tasks) {
+      if (t.status == TaskStatus.compressing && t.progress > 0) {
+        bytes += (t.inputFileSize * t.progress).round();
+      }
+    }
+    return bytes;
+  }
+
   int get _totalRawBytesProcessed => _tasks
       .where((t) => t.status == TaskStatus.completed)
       .fold(0, (sum, t) => sum + t.inputFileSize);
@@ -840,17 +851,40 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _quotaStatusBadge() {
+    final liveBytes = _liveEncodingBytes;
+    final totalConsumedBytes = _quotaService.totalBytesSlimmed + liveBytes;
     final isTrial = _quotaService.isTrialMode;
-    final isExceeded = _quotaService.isQuotaExceeded;
-    final isNearLimit = _quotaService.usedPercentage > 85;
+    final isExceeded = _quotaService.isQuotaExceeded || (isTrial && totalConsumedBytes >= _quotaService.currentTrialLimitBytes);
+    final limitBytes = isTrial ? _quotaService.currentTrialLimitBytes : _quotaService.quotaLimitBytes;
+    final usedPercentage = limitBytes > 0 ? (totalConsumedBytes / limitBytes * 100.0).clamp(0.0, 100.0) : 0.0;
+    final isNearLimit = usedPercentage > 85;
+
     final color = isExceeded
         ? Colors.redAccent
         : (isTrial ? const Color(0xFFFFB300) : (isNearLimit ? Colors.amberAccent : const Color(0xFF00E5FF)));
 
+    final usedGb = totalConsumedBytes / (1024.0 * 1024.0 * 1024.0);
+    final limitGb = _quotaService.trialLimitGb;
+    final usedTb = totalConsumedBytes / 1099511627776.0;
+    final limitTb = _quotaService.quotaLimitTb;
+
+    final String displayUsage;
+    if (isTrial) {
+      displayUsage = '${usedGb.toStringAsFixed(2)} / ${limitGb.toStringAsFixed(1)} GB (Trial)';
+    } else {
+      if (usedTb < 0.1) {
+        displayUsage = '${usedGb.toStringAsFixed(1)} GB / ${limitTb.toStringAsFixed(0)} TB';
+      } else {
+        displayUsage = '${usedTb.toStringAsFixed(2)} / ${limitTb.toStringAsFixed(0)} TB';
+      }
+    }
+
+    final isLive = liveBytes > 0;
+
     return Tooltip(
       message: isTrial
-          ? 'Free Trial: ${_quotaService.formattedUsage} (Click to Scan UPI QR & Activate 10 TB)'
-          : '10 TB Annual License: ${_quotaService.formattedUsage} (${_quotaService.formattedRemaining})',
+          ? 'Free Trial: $displayUsage (Click to Scan UPI QR & Activate 10 TB)'
+          : '10 TB Annual License: $displayUsage (${_quotaService.formattedRemaining})',
       child: InkWell(
         onTap: () {
           _showQuotaExceededDialog();
@@ -867,6 +901,17 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isLive) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF00E676),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
               Icon(
                 isExceeded
                     ? Icons.lock_clock
@@ -876,16 +921,28 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(width: 5),
               Text(
-                isTrial
-                    ? '${_quotaService.trialUsedGb.toStringAsFixed(2)} / 2.0 GB (Trial)'
-                    : '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB',
+                displayUsage,
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.w800,
                   fontSize: 11,
                 ),
               ),
-              if (isTrial) ...[
+              if (isLive) ...[
+                const SizedBox(width: 5),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E676).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: const Text(
+                    'LIVE',
+                    style: TextStyle(color: Color(0xFF00E676), fontSize: 8, fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ],
+              if (isTrial && !isLive) ...[
                 const SizedBox(width: 6),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
@@ -2131,97 +2188,146 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          // 10 TB Annual Video Slimming Quota Tracker
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.28),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: _quotaService.isQuotaExceeded
-                    ? Colors.redAccent.withOpacity(0.4)
-                    : const Color(0xFF00E5FF).withOpacity(0.2),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // 10 TB Annual Video Slimming Quota Tracker or Free Trial Live Quota Tracker
+          Builder(
+            builder: (context) {
+              final liveBytes = _liveEncodingBytes;
+              final totalConsumedBytes = _quotaService.totalBytesSlimmed + liveBytes;
+              final isTrial = _quotaService.isTrialMode;
+              final isExceeded = _quotaService.isQuotaExceeded || (isTrial && totalConsumedBytes >= _quotaService.currentTrialLimitBytes);
+              final limitBytes = isTrial ? _quotaService.currentTrialLimitBytes : _quotaService.quotaLimitBytes;
+              final usedPercentage = limitBytes > 0 ? (totalConsumedBytes / limitBytes * 100.0).clamp(0.0, 100.0) : 0.0;
+              final isNearLimit = usedPercentage > 85;
+
+              final color = isExceeded
+                  ? Colors.redAccent
+                  : (isTrial ? const Color(0xFFFFB300) : (isNearLimit ? Colors.amberAccent : const Color(0xFF00E5FF)));
+
+              final usedGb = totalConsumedBytes / (1024.0 * 1024.0 * 1024.0);
+              final limitGb = _quotaService.trialLimitGb;
+              final usedTb = totalConsumedBytes / 1099511627776.0;
+              final limitTb = _quotaService.quotaLimitTb;
+
+              final String quotaTitle = isTrial
+                  ? (isExceeded ? 'FREE TRIAL LIMIT EXCEEDED (2.0 GB)' : 'FREE TRIAL DATA CONSUMED (2.0 GB LIMIT)')
+                  : 'ANNUAL SLIMMER QUOTA (10 TB LICENSE)';
+
+              final String usageText = isTrial
+                  ? '${usedGb.toStringAsFixed(2)} GB / ${limitGb.toStringAsFixed(1)} GB (${usedPercentage.toStringAsFixed(1)}%)'
+                  : (usedTb < 0.1
+                      ? '${usedGb.toStringAsFixed(1)} GB / ${limitTb.toStringAsFixed(1)} TB (${usedPercentage.toStringAsFixed(1)}%)'
+                      : '${usedTb.toStringAsFixed(2)} TB / ${limitTb.toStringAsFixed(1)} TB (${usedPercentage.toStringAsFixed(1)}%)');
+
+              final String remainingText = isTrial
+                  ? (isExceeded ? '0.00 GB remaining • Click to Upgrade' : '${max(0.0, limitGb - usedGb).toStringAsFixed(2)} GB remaining')
+                  : _quotaService.formattedRemaining;
+
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.28),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isExceeded
+                        ? Colors.redAccent.withOpacity(0.4)
+                        : (isTrial ? const Color(0xFFFFB300).withOpacity(0.3) : const Color(0xFF00E5FF).withOpacity(0.2)),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(
-                          Icons.speed,
-                          color: _quotaService.isQuotaExceeded ? Colors.redAccent : const Color(0xFF00E5FF),
-                          size: 15,
+                        Row(
+                          children: [
+                            Icon(
+                              isExceeded ? Icons.lock_clock : Icons.speed,
+                              color: color,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              quotaTitle,
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            if (liveBytes > 0) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF00E676).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'LIVE',
+                                  style: TextStyle(color: Color(0xFF00E676), fontSize: 8.5, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'ANNUAL SLIMMER QUOTA (10 TB LICENSE)',
+                        Text(
+                          usageText,
                           style: TextStyle(
-                            color: Color(0xFF00E5FF),
-                            fontSize: 10.5,
+                            color: isExceeded
+                                ? Colors.redAccent
+                                : (usedPercentage > 85 ? Colors.amberAccent : Colors.white),
+                            fontSize: 11,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
                           ),
                         ),
                       ],
                     ),
-                    Text(
-                      '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB / ${_quotaService.quotaLimitTb.toStringAsFixed(1)} TB (${_quotaService.formattedPercentage})',
-                      style: TextStyle(
-                        color: _quotaService.isQuotaExceeded
-                            ? Colors.redAccent
-                            : (_quotaService.usedPercentage > 85 ? Colors.amberAccent : Colors.white),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: (usedPercentage / 100.0).clamp(0.0, 1.0),
+                        minHeight: 6,
+                        backgroundColor: Colors.white10,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isExceeded
+                              ? Colors.redAccent
+                              : (usedPercentage > 85
+                                  ? Colors.amberAccent
+                                  : (isTrial ? const Color(0xFFFFB300) : const Color(0xFF00E676))),
+                        ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: (_quotaService.usedPercentage / 100.0).clamp(0.0, 1.0),
-                    minHeight: 6,
-                    backgroundColor: Colors.white10,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      _quotaService.isQuotaExceeded
-                          ? Colors.redAccent
-                          : (_quotaService.usedPercentage > 85
-                              ? Colors.amberAccent
-                              : const Color(0xFF00E676)),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
+                    const SizedBox(height: 6),
                     Row(
-                      children: const [
-                        Icon(Icons.shield_outlined, size: 11, color: Colors.white38),
-                        SizedBox(width: 4),
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.shield_outlined, size: 11, color: Colors.white38),
+                            SizedBox(width: 4),
+                            Text(
+                              'Hardware Keychain & Cloud Sync Active',
+                              style: TextStyle(color: Colors.white38, fontSize: 9.5),
+                            ),
+                          ],
+                        ),
                         Text(
-                          'Hardware Keychain & Cloud Sync Active',
-                          style: TextStyle(color: Colors.white38, fontSize: 9.5),
+                          remainingText,
+                          style: TextStyle(
+                            color: isExceeded ? Colors.redAccent : const Color(0xFF00E676),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
-                    Text(
-                      _quotaService.formattedRemaining,
-                      style: const TextStyle(
-                        color: Color(0xFF00E676),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
                   ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ],
       ),

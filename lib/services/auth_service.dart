@@ -53,6 +53,8 @@ class AuthService extends ChangeNotifier {
       _currentUser = await _keychain.getGoogleUserProfile();
       if (_currentUser != null) {
         debugPrint('Loaded authenticated Google user: ${_currentUser!.email}');
+        final clientId = await _keychain.getClientId() ?? '';
+        await QuotaService().syncWithGoogleAccount(user: _currentUser!, clientId: clientId);
       }
       notifyListeners();
     } catch (e) {
