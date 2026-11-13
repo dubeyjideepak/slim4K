@@ -490,7 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           task.status = TaskStatus.idle;
           task.progress = 0.0;
-          task.errorMessage = 'Trial limit of 2.5 GB reached during processing. Upgrade to continue.';
+          task.errorMessage = 'Trial limit of 2.0 GB reached during processing. Upgrade to continue.';
         });
 
         // Prompt payment dialog

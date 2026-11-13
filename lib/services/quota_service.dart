@@ -32,13 +32,13 @@ class QuotaService extends ChangeNotifier {
   static const int defaultQuotaBytes = 10 * 1024 * 1024 * 1024 * 1024; // 10,995,116,277,760
   static const double defaultQuotaTb = 10.0;
 
-  /// 2.0 GB Free Trial Limit for unactivated users (default displayed quota)
+  /// 2.0 GB Free Trial Limit for unactivated users (strict 2.0 GB cap)
   static const int trialLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
   static const double defaultTrialLimitGb = 2.0;
 
-  /// 2.5 GB Hard Processing Ceiling during active file slimming
-  static const int trialHardLimitBytes = 2684354560; // 2.5 * 1024 * 1024 * 1024
-  static const double defaultTrialHardLimitGb = 2.5;
+  /// 2.0 GB Hard Processing Ceiling during active file slimming (strict 2.0 GB cap)
+  static const int trialHardLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
+  static const double defaultTrialHardLimitGb = 2.0;
 
   int _trialLimitBytes = trialLimitBytes;
   int _totalBytesSlimmed = 0;

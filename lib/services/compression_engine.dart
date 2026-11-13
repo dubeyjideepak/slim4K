@@ -549,7 +549,7 @@ class CompressionEngine {
       if (wasHardLimitExceeded || (onLiveProgressCheck != null && !onLiveProgressCheck(lastKnownProgress))) {
         throw QuotaHardLimitExceededException(
           totalProcessedBytes: (task.inputFileSize * lastKnownProgress).round(),
-          hardLimitBytes: 2684354560,
+          hardLimitBytes: 2147483648,
         );
       }
 
