@@ -44,21 +44,20 @@ void main() {
       expect((tenTbBytes - 1) >= tenTbBytes, isFalse);
     });
 
-    test('2.0 GB Default Display & 2.5 GB Live Hard Processing Ceiling', () {
+    test('Strict 2.0 GB Trial Limit & Live Hard Processing Ceiling', () {
       expect(QuotaService.trialLimitBytes, 2 * 1024 * 1024 * 1024);
       expect(QuotaService.defaultTrialLimitGb, 2.0);
 
-      expect(QuotaService.trialHardLimitBytes, 2684354560);
-      expect(QuotaService.defaultTrialHardLimitGb, 2.5);
+      expect(QuotaService.trialHardLimitBytes, 2 * 1024 * 1024 * 1024);
+      expect(QuotaService.defaultTrialHardLimitGb, 2.0);
 
       final quota = QuotaService();
       // Initially 0 bytes processed:
       expect(quota.isHardLimitExceeded(additionalBytes: 1 * 1024 * 1024 * 1024), isFalse);
-      expect(quota.isHardLimitExceeded(additionalBytes: 2 * 1024 * 1024 * 1024), isFalse);
-      expect(quota.isHardLimitExceeded(additionalBytes: 2400 * 1024 * 1024), isFalse);
+      expect(quota.isHardLimitExceeded(additionalBytes: (2 * 1024 * 1024 * 1024) - 1), isFalse);
 
-      // Surpasses 2.5 GB during live processing:
-      expect(quota.isHardLimitExceeded(additionalBytes: 2684354560), isTrue);
+      // Reaches or surpasses strict 2.0 GB:
+      expect(quota.isHardLimitExceeded(additionalBytes: 2 * 1024 * 1024 * 1024), isTrue);
       expect(quota.isHardLimitExceeded(additionalBytes: 3 * 1024 * 1024 * 1024), isTrue);
     });
 

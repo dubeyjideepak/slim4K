@@ -1703,43 +1703,66 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           // Encoder badge
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFF161B22),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: _activeEncoder.contains('videotoolbox') ||
-                        _activeEncoder.contains('mediacodec') ||
-                        _activeEncoder.contains('nvenc')
-                    ? const Color(0xFF00E676)
-                    : Colors.amber,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.bolt,
-                  color: _activeEncoder.contains('videotoolbox') ||
-                          _activeEncoder.contains('mediacodec') ||
-                          _activeEncoder.contains('nvenc')
-                      ? const Color(0xFF00E676)
-                      : Colors.amber,
-                  size: 14,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _activeEncoder,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+          Builder(
+            builder: (context) {
+              final isGpu = _activeEncoder.contains('videotoolbox') ||
+                  _activeEncoder.contains('mediacodec') ||
+                  _activeEncoder.contains('nvenc') ||
+                  _activeEncoder.contains('qsv') ||
+                  _activeEncoder.contains('amf') ||
+                  _activeEncoder.contains('vaapi');
+
+              String label = _activeEncoder;
+              if (_activeEncoder.contains('nvenc')) {
+                label = '⚡ NVIDIA GPU (NVENC)';
+              } else if (_activeEncoder.contains('qsv')) {
+                label = '⚡ Intel QuickSync (QSV)';
+              } else if (_activeEncoder.contains('amf')) {
+                label = '⚡ AMD Radeon (AMF)';
+              } else if (_activeEncoder.contains('videotoolbox')) {
+                label = '⚡ Apple Silicon (GPU)';
+              } else if (_activeEncoder.contains('mediacodec')) {
+                label = '⚡ Hardware (MediaCodec)';
+              } else if (_activeEncoder.contains('libx265')) {
+                label = '⚠️ CPU Mode (libx265)';
+              }
+
+              return Tooltip(
+                message: isGpu
+                    ? 'Hardware GPU Acceleration Active ($_activeEncoder)'
+                    : 'CPU Software Encoding Active ($_activeEncoder)',
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF161B22),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isGpu ? const Color(0xFF00E676) : Colors.amber,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isGpu ? Icons.bolt : Icons.memory,
+                        color: isGpu ? const Color(0xFF00E676) : Colors.amber,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: isGpu ? const Color(0xFF00E676) : Colors.amber,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ],
       ),

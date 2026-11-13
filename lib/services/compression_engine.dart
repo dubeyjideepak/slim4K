@@ -102,18 +102,22 @@ class CompressionEngine {
     }
     try {
       final ffmpeg = resolveExecutable('ffmpeg');
+      // Use 256x256 resolution: NVIDIA NVENC requires width >= 129 pixels,
+      // and Intel QSV / AMD AMF require standard macroblock-aligned dimensions.
       final result = await Process.run(ffmpeg, [
         '-f', 'lavfi',
-        '-i', 'color=c=black:s=64x64:d=0.04',
+        '-i', 'color=c=black:s=256x256:d=0.04',
         '-c:v', encoderName,
         '-f', 'null',
         '-',
       ]).timeout(const Duration(seconds: 4));
 
       final works = result.exitCode == 0;
+      debugPrint('Probing hardware encoder ($encoderName): works=$works (exitCode=${result.exitCode})');
       _encoderCache[encoderName] = works;
       return works;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Probing hardware encoder ($encoderName) failed: $e');
       _encoderCache[encoderName] = false;
       return false;
     }
@@ -421,14 +425,16 @@ class CompressionEngine {
     } else if (encoder == 'hevc_nvenc') {
       args.addAll([
         '-c:v', 'hevc_nvenc',
+        '-pix_fmt', 'yuv420p',
         '-b:v', '${bitrateK}k',
-        '-preset', 'p5',
+        '-preset', 'p4',
         '-rc', 'vbr',
         '-tag:v', 'hvc1',
       ]);
     } else if (encoder == 'hevc_qsv') {
       args.addAll([
         '-c:v', 'hevc_qsv',
+        '-pix_fmt', 'nv12',
         '-b:v', '${bitrateK}k',
         '-preset', 'medium',
         '-tag:v', 'hvc1',
@@ -436,6 +442,7 @@ class CompressionEngine {
     } else if (encoder == 'hevc_amf') {
       args.addAll([
         '-c:v', 'hevc_amf',
+        '-pix_fmt', 'nv12',
         '-b:v', '${bitrateK}k',
         '-quality', 'balanced',
         '-tag:v', 'hvc1',
@@ -450,6 +457,7 @@ class CompressionEngine {
       // Fallback fast CPU HEVC
       args.addAll([
         '-c:v', 'libx265',
+        '-pix_fmt', 'yuv420p',
         '-preset', 'fast',
         '-b:v', '${bitrateK}k',
         '-tag:v', 'hvc1',
@@ -627,15 +635,15 @@ class CompressionEngine {
     ];
 
     if (proxyEncoder == 'h264_videotoolbox') {
-      args.addAll(['-c:v', 'h264_videotoolbox', '-b:v', '2500k']);
+      args.addAll(['-c:v', 'h264_videotoolbox', '-pix_fmt', 'yuv420p', '-b:v', '2500k']);
     } else if (proxyEncoder == 'h264_nvenc') {
-      args.addAll(['-c:v', 'h264_nvenc', '-b:v', '2500k', '-preset', 'p4']);
+      args.addAll(['-c:v', 'h264_nvenc', '-pix_fmt', 'yuv420p', '-b:v', '2500k', '-preset', 'p4']);
     } else if (proxyEncoder == 'h264_qsv') {
-      args.addAll(['-c:v', 'h264_qsv', '-b:v', '2500k']);
+      args.addAll(['-c:v', 'h264_qsv', '-pix_fmt', 'nv12', '-b:v', '2500k']);
     } else if (proxyEncoder == 'h264_amf') {
-      args.addAll(['-c:v', 'h264_amf', '-b:v', '2500k']);
+      args.addAll(['-c:v', 'h264_amf', '-pix_fmt', 'nv12', '-b:v', '2500k']);
     } else {
-      args.addAll(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k']);
+      args.addAll(['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-b:v', '2500k']);
     }
 
     args.addAll([
