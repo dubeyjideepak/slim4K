@@ -38,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // Activation & License State
   ClientActivation? _activation;
   bool _isActivationChecking = true;
+  AppUpdateInfo? _availableUpdate;
 
   // Professional Videographer Options
   bool _isFolderArchiveMode = false;
@@ -94,13 +95,19 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final update = await AppUpdateService().checkForUpdates();
       if (mounted) {
+        setState(() {
+          _availableUpdate = (update != null && update.isUpdateAvailable) ? update : null;
+        });
         if (update != null && update.isUpdateAvailable) {
-          _showUpdateDialog(update);
+          // If mandatory or explicitly requested by user, display dialog immediately
+          if (update.isMandatory || showFeedbackIfLatest) {
+            _showUpdateDialog(update);
+          }
         } else if (showFeedbackIfLatest) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Slim4K is already up to date (v1.0.0)!'),
-              backgroundColor: Color(0xFF00E676),
+            SnackBar(
+              content: Text('Slim4K is up to date (v${AppUpdateService.currentAppVersion})!'),
+              backgroundColor: const Color(0xFF00E676),
             ),
           );
         }
@@ -1408,7 +1415,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       _checkAppUpdates(showFeedbackIfLatest: true);
                     },
                     icon: const Icon(Icons.system_update_rounded, size: 16),
-                    label: const Text('Check for Software Updates (v1.0.0)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    label: Text('Check for Software Updates (v${AppUpdateService.currentAppVersion})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
@@ -1702,6 +1709,26 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+          // In-App Update badge (ONLY visible when a new version has arrived)
+          if (_availableUpdate != null && _availableUpdate!.isUpdateAvailable)
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  elevation: 2,
+                ),
+                onPressed: () => _showUpdateDialog(_availableUpdate!),
+                icon: const Icon(Icons.system_update_rounded, size: 14, color: Colors.black),
+                label: Text(
+                  'Update to v${_availableUpdate!.latestVersion}',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+                ),
+              ),
+            ),
           // Encoder badge
           Builder(
             builder: (context) {

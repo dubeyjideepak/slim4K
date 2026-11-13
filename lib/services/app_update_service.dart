@@ -26,10 +26,13 @@ class AppUpdateService {
   factory AppUpdateService() => _instance;
   AppUpdateService._internal();
 
-  static const String currentAppVersion = '1.0.0';
+  static const String currentAppVersion = '1.0.1';
 
   AppUpdateInfo? _cachedUpdateInfo;
   AppUpdateInfo? get cachedUpdateInfo => _cachedUpdateInfo;
+
+  /// Exposes version comparison for testing and validation
+  bool isVersionGreater(String remote, String local) => _isVersionGreater(remote, local);
 
   /// Checks Firestore global_pricing for new releases
   Future<AppUpdateInfo?> checkForUpdates() async {

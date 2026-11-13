@@ -2,7 +2,7 @@
 ; Builds a standalone installer for Slim4K Windows Application
 
 #define MyAppName "Slim4K"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Slim4K Team"
 #define MyAppExeName "slim4k.exe"
 #define MyAppAssocName MyAppName + " Video Compressor"
