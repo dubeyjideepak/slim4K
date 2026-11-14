@@ -4,6 +4,7 @@ import '../models/user_profile.dart';
 import '../services/auth_service.dart';
 import '../services/keychain_service.dart';
 import '../services/quota_service.dart';
+import '../widgets/terms_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -538,6 +539,31 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
+
+                  const SizedBox(height: 12),
+
+                  // Dedicated Slim4K Terms & Studio License Agreement Link
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'By using Slim4K, you agree to our ',
+                        style: TextStyle(color: Color(0xFF8B949E), fontSize: 11),
+                      ),
+                      InkWell(
+                        onTap: () => showSlim4KTermsDialog(context),
+                        child: const Text(
+                          'Terms & License Policy',
+                          style: TextStyle(
+                            color: Color(0xFF00E5FF),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

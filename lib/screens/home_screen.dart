@@ -15,6 +15,7 @@ import '../services/keychain_service.dart';
 import '../services/quota_service.dart';
 import '../widgets/activation_lock_widget.dart';
 import '../widgets/comparison_player.dart';
+import '../widgets/terms_dialog.dart';
 import '../widgets/upi_payment_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -786,6 +787,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
+            onPressed: () {
+              showSlim4KTermsDialog(context);
+            },
+            child: const Text('View Terms', style: TextStyle(color: Color(0xFF00E5FF))),
+          ),
+          TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close', style: TextStyle(color: Colors.white54)),
           ),
@@ -1419,6 +1426,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ],
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 38,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: const BorderSide(color: Color(0xFF30363D)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () {
+                    showSlim4KTermsDialog(context);
+                  },
+                  icon: const Icon(Icons.gavel_rounded, size: 16, color: Color(0xFF00E5FF)),
+                  label: const Text('Slim4K Terms & Studio License Policy', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
             ],
           ),
         ),

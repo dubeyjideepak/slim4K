@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../services/activation_service.dart';
 import '../services/auth_service.dart';
 import '../services/quota_service.dart';
+import 'terms_dialog.dart';
 
 class UpiPaymentDialog extends StatefulWidget {
   final bool isTrialExpired;
@@ -593,7 +594,32 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
+
+                          // Terms of Service & License Policy consent link
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              const Text(
+                                'By proceeding, you agree to the ',
+                                style: TextStyle(color: Colors.white38, fontSize: 10),
+                              ),
+                              InkWell(
+                                onTap: () => showSlim4KTermsDialog(context),
+                                child: const Text(
+                                  'Slim4K Terms & License Policy',
+                                  style: TextStyle(
+                                    color: Color(0xFF00E5FF),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
 
                           // SECONDARY ROW: Check Status & Copy Link
                           Row(
