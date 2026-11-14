@@ -392,19 +392,21 @@ class QuotaService extends ChangeNotifier {
           remoteQuota = int.tryParse(rq['integerValue']?.toString() ?? '') ?? defaultQuotaBytes;
         }
 
-        // Reconcile with maximum (prevents tampering or reset by reinstall)
-        final reconciledBytes = max(_totalBytesSlimmed, remoteBytes);
-        final reconciledSaved = max(_totalBytesSaved, remoteSaved);
-        final reconciledFiles = max(_totalFilesSlimmed, remoteFiles);
+        final forceCloud = fields['force_cloud_quota']?['booleanValue'] == true;
+
+        // Reconcile with maximum (prevents tampering, unless admin explicitly sets force_cloud_quota)
+        final reconciledBytes = forceCloud ? remoteBytes : max(_totalBytesSlimmed, remoteBytes);
+        final reconciledSaved = forceCloud ? remoteSaved : max(_totalBytesSaved, remoteSaved);
+        final reconciledFiles = forceCloud ? remoteFiles : max(_totalFilesSlimmed, remoteFiles);
         final reconciledQuota = max(_quotaLimitBytes, remoteQuota);
 
-        final changedLocally = reconciledBytes > _totalBytesSlimmed ||
-            reconciledSaved > _totalBytesSaved ||
-            reconciledFiles > _totalFilesSlimmed;
+        final changedLocally = reconciledBytes != _totalBytesSlimmed ||
+            reconciledSaved != _totalBytesSaved ||
+            reconciledFiles != _totalFilesSlimmed;
 
-        final changedRemotely = reconciledBytes > remoteBytes ||
+        final changedRemotely = !forceCloud && (reconciledBytes > remoteBytes ||
             reconciledSaved > remoteSaved ||
-            reconciledFiles > remoteFiles;
+            reconciledFiles > remoteFiles);
 
         _totalBytesSlimmed = reconciledBytes;
         _totalBytesSaved = reconciledSaved;
@@ -554,15 +556,17 @@ class QuotaService extends ChangeNotifier {
         final remoteQuota = int.tryParse(fields['quota_limit_bytes']?['integerValue']?.toString() ?? '') ??
             (hasPaid ? defaultQuotaBytes : trialLimitBytes);
 
-        // Reconcile with maximum (prevents local progress from being wiped by an empty or lower remote doc)
-        final reconciledBytes = max(_totalBytesSlimmed, remoteBytes);
-        final reconciledSaved = max(_totalBytesSaved, remoteSaved);
-        final reconciledFiles = max(_totalFilesSlimmed, remoteFiles);
+        final forceCloud = fields['force_cloud_quota']?['booleanValue'] == true;
+
+        // Reconcile with maximum (prevents local progress from being wiped by an empty or lower remote doc, unless admin explicitly sets force_cloud_quota)
+        final reconciledBytes = forceCloud ? remoteBytes : max(_totalBytesSlimmed, remoteBytes);
+        final reconciledSaved = forceCloud ? remoteSaved : max(_totalBytesSaved, remoteSaved);
+        final reconciledFiles = forceCloud ? remoteFiles : max(_totalFilesSlimmed, remoteFiles);
         final reconciledQuota = max(_quotaLimitBytes, remoteQuota);
 
-        final changedRemotely = reconciledBytes > remoteBytes ||
+        final changedRemotely = !forceCloud && (reconciledBytes > remoteBytes ||
             reconciledSaved > remoteSaved ||
-            reconciledFiles > remoteFiles;
+            reconciledFiles > remoteFiles);
 
         _totalBytesSlimmed = reconciledBytes;
         _totalBytesSaved = reconciledSaved;
