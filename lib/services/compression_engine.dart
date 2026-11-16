@@ -361,6 +361,27 @@ class CompressionEngine {
       if (e is QuotaHardLimitExceededException) rethrow;
       if (_isCancelled) rethrow;
 
+      // If hevc_nvenc failed (e.g. GTX 10-series Pascal doesn't support HEVC B-frames),
+      // retry with NVENC compatibility mode before falling back to CPU!
+      if (preferredEncoder == 'hevc_nvenc') {
+        debugPrint('NVENC studio preset failed: $e. Retrying with NVENC Pascal compatibility mode...');
+        final partial = File(outputPath);
+        if (await partial.exists()) {
+          try { await partial.delete(); } catch (_) {}
+        }
+        try {
+          return await _executeCompression(
+            task: task,
+            outputPath: outputPath,
+            encoder: 'hevc_nvenc_compat',
+            onLiveProgressCheck: onLiveProgressCheck,
+            onProgress: onProgress,
+          );
+        } catch (e2) {
+          debugPrint('NVENC compatibility mode also failed: $e2. Retrying with universal CPU libx265...');
+        }
+      }
+
       // If hardware encoder failed on this machine (e.g. driver mismatch, GPU memory),
       // seamlessly fall back to universal CPU libx265 so user compression always succeeds!
       if (preferredEncoder != 'libx265') {
@@ -443,6 +464,24 @@ class CompressionEngine {
         '-colorspace', 'bt709',
         '-tag:v', 'hvc1',
       ]);
+    } else if (encoder == 'hevc_nvenc_compat') {
+      // Pascal GPU (GTX 1060/1070/1080) compatibility profile (no HEVC B-frames hardware)
+      args.addAll([
+        '-c:v', 'hevc_nvenc',
+        '-pix_fmt', 'p010le',
+        '-preset', 'p4',
+        '-rc:v', 'vbr',
+        '-cq:v', '23',
+        '-b:v', '${bitrateK}k',
+        '-maxrate', '${(bitrateK * 1.35).round()}k',
+        '-bufsize', '${(bitrateK * 2).round()}k',
+        '-spatial_aq', '1',
+        '-g', '250',
+        '-color_primaries', 'bt709',
+        '-color_trc', 'bt709',
+        '-colorspace', 'bt709',
+        '-tag:v', 'hvc1',
+      ]);
     } else if (encoder == 'hevc_qsv') {
       args.addAll([
         '-c:v', 'hevc_qsv',
@@ -459,6 +498,7 @@ class CompressionEngine {
         '-tag:v', 'hvc1',
       ]);
     } else if (encoder == 'hevc_amf') {
+      // AMD Radeon AMF HEVC (VCN does not support HEVC B-frames; long-GOP + quality VBR)
       args.addAll([
         '-c:v', 'hevc_amf',
         '-pix_fmt', 'nv12',
@@ -466,7 +506,6 @@ class CompressionEngine {
         '-b:v', '${bitrateK}k',
         '-maxrate', '${(bitrateK * 1.35).round()}k',
         '-bufsize', '${(bitrateK * 2).round()}k',
-        '-bf', '3',
         '-g', '250',
         '-color_primaries', 'bt709',
         '-color_trc', 'bt709',
@@ -579,7 +618,11 @@ class CompressionEngine {
         if (onLiveProgressCheck != null && !onLiveProgressCheck(lastKnownProgress)) {
           wasHardLimitExceeded = true;
           _isCancelled = true;
-          process.kill(ProcessSignal.sigkill);
+          if (Platform.isWindows) {
+            process.kill();
+          } else {
+            process.kill(ProcessSignal.sigkill);
+          }
         }
       }
     });
@@ -751,6 +794,15 @@ class CompressionEngine {
       } catch (e) {
         debugPrint('AppleScript trash error: $e');
       }
+    } else if (Platform.isWindows) {
+      try {
+        final psCommand =
+            '''Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('$filePath','OnlyErrorDialogs','SendToRecycleBin')''';
+        final result = await Process.run('powershell', ['-NoProfile', '-Command', psCommand]);
+        return result.exitCode == 0;
+      } catch (e) {
+        debugPrint('Windows Recycle Bin error: $e');
+      }
     }
 
     // Fallback: move to ~/.Trash on Unix if available
@@ -771,7 +823,11 @@ class CompressionEngine {
 
   void cancel() {
     _isCancelled = true;
-    _activeProcess?.kill(ProcessSignal.sigkill);
+    if (Platform.isWindows) {
+      _activeProcess?.kill();
+    } else {
+      _activeProcess?.kill(ProcessSignal.sigkill);
+    }
     _activeProcess = null;
   }
 }
