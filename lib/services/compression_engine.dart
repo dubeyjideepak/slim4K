@@ -102,17 +102,45 @@ class CompressionEngine {
     }
     try {
       final ffmpeg = resolveExecutable('ffmpeg');
-      // Use 256x256 resolution: NVIDIA NVENC requires width >= 129 pixels,
-      // and Intel QSV / AMD AMF require standard macroblock-aligned dimensions.
-      final result = await Process.run(ffmpeg, [
-        '-f', 'lavfi',
-        '-i', 'color=c=black:s=256x256:d=0.04',
-        '-c:v', encoderName,
-        '-f', 'null',
-        '-',
-      ]).timeout(const Duration(seconds: 4));
+      List<String> probeArgs;
+      if (encoderName == 'hevc_qsv') {
+        probeArgs = [
+          '-init_hw_device', 'qsv=hw',
+          '-filter_hw_device', 'hw',
+          '-f', 'lavfi',
+          '-i', 'color=c=black:s=256x256:d=0.04',
+          '-c:v', 'hevc_qsv',
+          '-f', 'null',
+          '-',
+        ];
+      } else {
+        probeArgs = [
+          '-f', 'lavfi',
+          '-i', 'color=c=black:s=256x256:d=0.04',
+          '-c:v', encoderName,
+          '-f', 'null',
+          '-',
+        ];
+      }
+      var result = await Process.run(ffmpeg, probeArgs).timeout(const Duration(seconds: 4));
+      var works = result.exitCode == 0;
 
-      final works = result.exitCode == 0;
+      // On some Windows Intel setups, child_device_type=d3d11va is needed
+      if (!works && encoderName == 'hevc_qsv' && Platform.isWindows) {
+        try {
+          final altResult = await Process.run(ffmpeg, [
+            '-init_hw_device', 'qsv=hw,child_device_type=d3d11va',
+            '-filter_hw_device', 'hw',
+            '-f', 'lavfi',
+            '-i', 'color=c=black:s=256x256:d=0.04',
+            '-c:v', 'hevc_qsv',
+            '-f', 'null',
+            '-',
+          ]).timeout(const Duration(seconds: 4));
+          works = altResult.exitCode == 0;
+        } catch (_) {}
+      }
+
       debugPrint('Probing hardware encoder ($encoderName): works=$works (exitCode=${result.exitCode})');
       _encoderCache[encoderName] = works;
       return works;
@@ -382,6 +410,26 @@ class CompressionEngine {
         }
       }
 
+      // If hevc_qsv failed, retry with QSV D3D11VA compatibility mode before falling back to CPU!
+      if (preferredEncoder == 'hevc_qsv') {
+        debugPrint('QSV standard preset failed: $e. Retrying with QSV D3D11VA compatibility mode...');
+        final partial = File(outputPath);
+        if (await partial.exists()) {
+          try { await partial.delete(); } catch (_) {}
+        }
+        try {
+          return await _executeCompression(
+            task: task,
+            outputPath: outputPath,
+            encoder: 'hevc_qsv_d3d11',
+            onLiveProgressCheck: onLiveProgressCheck,
+            onProgress: onProgress,
+          );
+        } catch (e2) {
+          debugPrint('QSV compatibility mode also failed: $e2. Retrying with universal CPU libx265...');
+        }
+      }
+
       // If hardware encoder failed on this machine (e.g. driver mismatch, GPU memory),
       // seamlessly fall back to universal CPU libx265 so user compression always succeeds!
       if (preferredEncoder != 'libx265') {
@@ -423,13 +471,27 @@ class CompressionEngine {
     final bitrateK = task.targetBitrateKbps;
 
     // Build FFmpeg command arguments
-    final List<String> args = [
-      '-y',
+    final List<String> args = ['-y'];
+
+    // Hardware device initialization (required on Windows for Intel QSV before -i)
+    if (encoder == 'hevc_qsv') {
+      args.addAll([
+        '-init_hw_device', 'qsv=hw',
+        '-filter_hw_device', 'hw',
+      ]);
+    } else if (encoder == 'hevc_qsv_d3d11') {
+      args.addAll([
+        '-init_hw_device', 'qsv=hw,child_device_type=d3d11va',
+        '-filter_hw_device', 'hw',
+      ]);
+    }
+
+    args.addAll([
       '-i', task.inputPath,
       '-map', '0:v:0',
       '-map', '0:a?',
       '-map_metadata', '0',
-    ];
+    ]);
 
     // Hardware encoder arguments
     if (encoder == 'hevc_videotoolbox') {
@@ -482,15 +544,14 @@ class CompressionEngine {
         '-colorspace', 'bt709',
         '-tag:v', 'hvc1',
       ]);
-    } else if (encoder == 'hevc_qsv') {
+    } else if (encoder == 'hevc_qsv' || encoder == 'hevc_qsv_d3d11') {
+      // Intel QuickSync Hardware Pipeline (Dell/HP/Lenovo Intel UHD/Iris Xe graphics)
       args.addAll([
         '-c:v', 'hevc_qsv',
-        '-pix_fmt', 'p010le', // 10-bit Main 10
-        '-preset', 'medium',
+        '-preset', 'fast',
         '-b:v', '${bitrateK}k',
         '-maxrate', '${(bitrateK * 1.35).round()}k',
         '-bufsize', '${(bitrateK * 2).round()}k',
-        '-bf', '3',
         '-g', '250',
         '-color_primaries', 'bt709',
         '-color_trc', 'bt709',
@@ -524,15 +585,16 @@ class CompressionEngine {
         '-tag:v', 'hvc1',
       ]);
     } else {
-      // Fallback fast CPU HEVC with reference 10-bit visual tuning
+      // Universal CPU HEVC: Fast, responsive multi-threaded tuning for laptop CPUs (prevents 4 FPS stalls)
       args.addAll([
         '-c:v', 'libx265',
-        '-pix_fmt', 'yuv420p10le', // 10-bit Main 10
-        '-preset', 'fast',
+        '-pix_fmt', 'yuv420p',
+        '-preset', 'veryfast',
+        '-threads', '0',
         '-b:v', '${bitrateK}k',
         '-maxrate', '${(bitrateK * 1.35).round()}k',
         '-bufsize', '${(bitrateK * 2).round()}k',
-        '-x265-params', 'no-sao=1:aq-mode=2:bframes=4:keyint=250',
+        '-x265-params', 'no-sao=1:keyint=250',
         '-color_primaries', 'bt709',
         '-color_trc', 'bt709',
         '-colorspace', 'bt709',
