@@ -26,7 +26,7 @@ class AppUpdateService {
   factory AppUpdateService() => _instance;
   AppUpdateService._internal();
 
-  static const String currentAppVersion = '1.0.1';
+  static const String currentAppVersion = '1.0.2';
 
   AppUpdateInfo? _cachedUpdateInfo;
   AppUpdateInfo? get cachedUpdateInfo => _cachedUpdateInfo;
