@@ -2504,39 +2504,45 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              isExceeded ? Icons.lock_clock : Icons.speed,
-                              color: color,
-                              size: 15,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              quotaTitle,
-                              style: TextStyle(
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Icon(
+                                isExceeded ? Icons.lock_clock : Icons.speed,
                                 color: color,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.8,
+                                size: 15,
                               ),
-                            ),
-                            if (liveBytes > 0) ...[
                               const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF00E676).withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  'LIVE',
-                                  style: TextStyle(color: Color(0xFF00E676), fontSize: 8.5, fontWeight: FontWeight.bold),
+                              Flexible(
+                                child: Text(
+                                  quotaTitle,
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.8,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              if (liveBytes > 0) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF00E676).withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'LIVE',
+                                    style: TextStyle(color: Color(0xFF00E676), fontSize: 8.5, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
+                        const SizedBox(width: 6),
                         Text(
                           usageText,
                           style: TextStyle(
