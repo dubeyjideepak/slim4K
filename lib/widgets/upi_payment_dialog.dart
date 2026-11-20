@@ -34,11 +34,13 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   // Default NeerTech Cashfree Details (dynamically synced from license server)
   static const String defaultPayeeName = 'NeerTech Technologies';
   static const String defaultLicenseAmount = '9999';
+  static const String defaultOriginalAmount = '19999';
   static const String defaultSupportPhone = '+91 74588 29500';
   static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/links?code=Nb7rbehn28jg_AAAAAAAWrHQ';
 
   String _payeeName = defaultPayeeName;
   String _licenseAmount = defaultLicenseAmount;
+  String _originalAmount = defaultOriginalAmount;
   String _supportPhone = defaultSupportPhone;
   String _cashfreePaymentUrl = defaultCashfreePaymentUrl;
 
@@ -53,6 +55,17 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
       );
     }
     return _licenseAmount;
+  }
+
+  String get _formattedOriginalAmount {
+    final numVal = int.tryParse(_originalAmount);
+    if (numVal != null) {
+      return numVal.toString().replaceAllMapped(
+        RegExp(r'(\d+?)(?=(\d\d)+(\d)(?!\d))'),
+        (Match m) => '${m[1]},',
+      );
+    }
+    return _originalAmount;
   }
 
   @override
@@ -87,13 +100,24 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
         final fields = doc['fields'] as Map<String, dynamic>? ?? {};
 
         final amt = fields['license_amount']?['stringValue'] ?? fields['license_amount']?['integerValue']?.toString();
+        final origAmt = fields['original_amount']?['stringValue'] ?? fields['original_amount']?['integerValue']?.toString();
         final cfUrl = fields['cashfree_payment_url']?['stringValue'];
         final payee = fields['payee_name']?['stringValue'];
         final phone = fields['support_phone']?['stringValue'];
 
         if (mounted) {
           setState(() {
-            if (amt != null && amt.isNotEmpty) _licenseAmount = amt;
+            // Guard against legacy test price of '9'
+            if (amt != null && amt.isNotEmpty && amt != '9') {
+              _licenseAmount = amt;
+            } else if (amt == '9') {
+              _licenseAmount = '9999';
+            }
+            if (origAmt != null && origAmt.isNotEmpty) {
+              _originalAmount = origAmt;
+            } else {
+              _originalAmount = '19999';
+            }
             if (cfUrl != null && cfUrl.isNotEmpty) _cashfreePaymentUrl = cfUrl;
             if (payee != null && payee.isNotEmpty) _payeeName = payee;
             if (phone != null && phone.isNotEmpty) _supportPhone = phone;
@@ -114,11 +138,17 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
           final clientFields = clientDoc['fields'] as Map<String, dynamic>? ?? {};
 
           final clientAmt = clientFields['license_amount']?['stringValue'] ?? clientFields['license_amount']?['integerValue']?.toString();
+          final clientOrigAmt = clientFields['original_amount']?['stringValue'] ?? clientFields['original_amount']?['integerValue']?.toString();
           final clientCfUrl = clientFields['cashfree_payment_url']?['stringValue'];
 
           if (mounted) {
             setState(() {
-              if (clientAmt != null && clientAmt.isNotEmpty) _licenseAmount = clientAmt;
+              if (clientAmt != null && clientAmt.isNotEmpty && clientAmt != '9') {
+                _licenseAmount = clientAmt;
+              }
+              if (clientOrigAmt != null && clientOrigAmt.isNotEmpty) {
+                _originalAmount = clientOrigAmt;
+              }
               if (clientCfUrl != null && clientCfUrl.isNotEmpty) _cashfreePaymentUrl = clientCfUrl;
             });
           }
@@ -471,14 +501,64 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                           ),
                           const SizedBox(height: 12),
 
-                          // Price Badge
-                          Text(
-                            '₹$_formattedAmount / Year',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          // Price Badge with Strikethrough Original Price
+                          Column(
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    '₹$_formattedOriginalAmount',
+                                    style: const TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      decoration: TextDecoration.lineThrough,
+                                      decorationColor: Colors.redAccent,
+                                      decorationThickness: 2.0,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '₹$_formattedAmount',
+                                    style: const TextStyle(
+                                      color: Color(0xFF00E676),
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    '/ Year',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF00E676).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFF00E676).withOpacity(0.3)),
+                                ),
+                                child: const Text(
+                                  '50% OFF • LIMITED STUDIO OFFER',
+                                  style: TextStyle(
+                                    color: Color(0xFF00E676),
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const Text(
                             'Full 10.0 TB 4K Video Slimming Quota',

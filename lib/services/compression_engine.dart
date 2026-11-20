@@ -326,7 +326,7 @@ class CompressionEngine {
       return customOutputPath;
     }
 
-    String outputDir;
+    String baseOutputDir;
     final inputDir = Directory(p.dirname(task.inputPath));
     bool canWriteInput = false;
     try {
@@ -341,16 +341,23 @@ class CompressionEngine {
     }
 
     if (canWriteInput) {
-      outputDir = inputDir.path;
+      baseOutputDir = inputDir.path;
     } else if (Platform.isAndroid) {
       final extDir = await getExternalStorageDirectory();
-      outputDir = extDir?.path ?? (await getApplicationDocumentsDirectory()).path;
+      baseOutputDir = extDir?.path ?? (await getApplicationDocumentsDirectory()).path;
     } else {
       final docDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
-      outputDir = docDir.path;
+      baseOutputDir = docDir.path;
     }
+
+    // Always create a dedicated 'Slim4K_Output' folder so compressed files are never mixed with raw source videos
+    final outputFolder = Directory(p.join(baseOutputDir, 'Slim4K_Output'));
+    if (!await outputFolder.exists()) {
+      await outputFolder.create(recursive: true);
+    }
+
     final baseName = p.basenameWithoutExtension(task.inputPath);
-    return p.join(outputDir, '${baseName}_slim.mp4');
+    return p.join(outputFolder.path, '${baseName}_slim.mp4');
   }
 
   String _resolveProxyPath(VideoTask task, String? customProxyPath) {
@@ -717,6 +724,17 @@ class CompressionEngine {
     final outFile = File(outputPath);
     if (!await outFile.exists() || await outFile.length() == 0) {
       throw Exception('Output video file was not generated or is empty');
+    }
+
+    // Preserve original recording timestamp for NLE timeline chronological ordering
+    try {
+      final sourceFile = File(task.inputPath);
+      if (await sourceFile.exists()) {
+        final lastModified = await sourceFile.lastModified();
+        await outFile.setLastModified(lastModified);
+      }
+    } catch (e) {
+      debugPrint('Warning: Could not preserve file modification timestamp: $e');
     }
 
     return outputPath;

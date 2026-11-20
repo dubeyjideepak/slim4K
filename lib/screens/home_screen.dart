@@ -33,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<VideoTask> _tasks = [];
   String _activeEncoder = 'Detecting...';
   bool _isProcessingBatch = false;
+  bool _isBatchCancelled = false;
   CompressionPreset _selectedPreset = CompressionPreset.slim10x;
   int _customBitrateKbps = 10000;
 
@@ -594,9 +595,16 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     } catch (e) {
       if (mounted) {
+        final isCancel = e.toString().contains('cancelled by user') || _isBatchCancelled;
         setState(() {
-          task.status = TaskStatus.error;
-          task.errorMessage = e.toString();
+          task.status = isCancel ? TaskStatus.idle : TaskStatus.error;
+          task.errorMessage = isCancel ? 'Slimming stopped' : e.toString();
+          if (isCancel) {
+            task.progress = 0.0;
+            task.currentFps = 0.0;
+            task.speedMultiplier = 0.0;
+            task.estimatedTimeRemaining = null;
+          }
         });
       }
     }
@@ -612,7 +620,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _stopAllProcessing() {
+    _isBatchCancelled = true;
+    _engine.cancel();
+    if (mounted) {
+      setState(() {
+        _isProcessingBatch = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.stop_circle_outlined, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Text('Slimming process stopped by user.', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _startAllPending() async {
+    _isBatchCancelled = false;
     if (_quotaService.isQuotaExceeded) {
       _showQuotaExceededDialog();
       return;
@@ -632,6 +664,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // If mirroring into a separate folder, copy non-video files to destination tree first
     if (!_saveFilesInPlace && _projectScanResult != null && _projectScanResult!.nonVideoFiles.isNotEmpty) {
       for (final nonVid in _projectScanResult!.nonVideoFiles) {
+        if (_isBatchCancelled) break;
         await _engine.copyNonVideoFile(
           sourceFile: nonVid,
           sourceRoot: _projectScanResult!.sourceDir,
@@ -641,8 +674,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     for (final task in _tasks) {
+      if (_isBatchCancelled) break;
       if (task.status == TaskStatus.idle || task.status == TaskStatus.error) {
         await _startCompression(task);
+        if (_isBatchCancelled) break;
       }
     }
 
@@ -776,14 +811,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _revealInFolder(String filePath) async {
+  Future<void> _revealInFolder(String targetPath) async {
     try {
+      final file = File(targetPath);
+      final exists = await file.exists();
+      final dirExists = await Directory(targetPath).exists();
+      final pathToOpen = exists ? targetPath : (dirExists ? targetPath : p.dirname(targetPath));
+
       if (Platform.isMacOS) {
-        await Process.run('open', ['-R', filePath]);
+        if (exists) {
+          await Process.run('open', ['-R', pathToOpen]);
+        } else {
+          await Process.run('open', [pathToOpen]);
+        }
       } else if (Platform.isWindows) {
-        await Process.run('explorer.exe', ['/select,', filePath]);
+        if (exists) {
+          await Process.run('explorer.exe', ['/select,$pathToOpen']);
+        } else {
+          await Process.run('explorer.exe', [pathToOpen]);
+        }
       } else if (Platform.isLinux) {
-        await Process.run('xdg-open', [p.dirname(filePath)]);
+        await Process.run('xdg-open', [exists ? p.dirname(pathToOpen) : pathToOpen]);
       }
     } catch (e) {
       debugPrint('Error revealing in folder: $e');
@@ -801,7 +849,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final baseName = p.basenameWithoutExtension(task.inputPath);
     final inputDir = p.dirname(task.inputPath);
-    return p.join(inputDir, '${baseName}_slim.mp4');
+    return p.join(inputDir, 'Slim4K_Output', '${baseName}_slim.mp4');
   }
 
   // Feature 3: ROI Calculations
@@ -1947,20 +1995,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       height: 48,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00E5FF),
-                          foregroundColor: Colors.black,
+                          backgroundColor: _isProcessingBatch ? Colors.redAccent : const Color(0xFF00E5FF),
+                          foregroundColor: _isProcessingBatch ? Colors.white : Colors.black,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
-                        onPressed: _isProcessingBatch ? null : _startAllPending,
+                        onPressed: _isProcessingBatch ? _stopAllProcessing : _startAllPending,
                         icon: _isProcessingBatch
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                              )
+                            ? const Icon(Icons.stop_circle_rounded, size: 20)
                             : const Icon(Icons.flash_on),
                         label: Text(
-                          _isProcessingBatch ? 'Compressing Batch...' : 'Archive All (${_tasks.length})',
+                          _isProcessingBatch ? 'Stop Slimming' : 'Archive All (${_tasks.length})',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                       ),
@@ -2104,20 +2148,18 @@ class _HomeScreenState extends State<HomeScreen> {
           height: 48,
           child: ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E5FF),
-              foregroundColor: Colors.black,
+              backgroundColor: _isProcessingBatch ? Colors.redAccent : const Color(0xFF00E5FF),
+              foregroundColor: _isProcessingBatch ? Colors.white : Colors.black,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: _tasks.isEmpty || _isProcessingBatch ? null : _startAllPending,
+            onPressed: _tasks.isEmpty
+                ? null
+                : (_isProcessingBatch ? _stopAllProcessing : _startAllPending),
             icon: _isProcessingBatch
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                  )
+                ? const Icon(Icons.stop_circle_rounded, size: 20)
                 : const Icon(Icons.flash_on),
             label: Text(
-              _isProcessingBatch ? 'Archiving Batch...' : 'Archive All (${_tasks.length})',
+              _isProcessingBatch ? 'Stop Slimming' : 'Archive All (${_tasks.length})',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
@@ -2638,20 +2680,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isDone ? const Color(0xFF00E676) : const Color(0xFF7C4DFF),
+                      backgroundColor: _isProcessingBatch
+                          ? Colors.redAccent
+                          : isDone
+                              ? const Color(0xFF00E676)
+                              : const Color(0xFF7C4DFF),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       elevation: 4,
                     ),
                     onPressed: _isProcessingBatch
-                        ? null
+                        ? _stopAllProcessing
                         : isDone
                             ? null
                             : _startAllPending,
                     icon: Icon(
                       _isProcessingBatch
-                          ? Icons.hourglass_top_rounded
+                          ? Icons.stop_circle_rounded
                           : isDone
                               ? Icons.check_circle_rounded
                               : Icons.bolt_rounded,
@@ -2659,7 +2705,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     label: Text(
                       _isProcessingBatch
-                          ? 'Slimming Folder Files... ($completedVideos/$totalVideos)'
+                          ? 'Stop Slimming ($completedVideos/$totalVideos)'
                           : isDone
                               ? 'All $totalVideos Files Slimmed Successfully ✅'
                               : 'Slim All $totalVideos Files in Folder',
@@ -2820,18 +2866,18 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (pendingTasks > 0)
+              if (pendingTasks > 0 || _isProcessingBatch)
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00E5FF),
-                    foregroundColor: Colors.black,
+                    backgroundColor: _isProcessingBatch ? Colors.redAccent : const Color(0xFF00E5FF),
+                    foregroundColor: _isProcessingBatch ? Colors.white : Colors.black,
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
-                  onPressed: _isProcessingBatch ? null : _startAllPending,
-                  icon: const Icon(Icons.bolt, size: 14),
+                  onPressed: _isProcessingBatch ? _stopAllProcessing : _startAllPending,
+                  icon: Icon(_isProcessingBatch ? Icons.stop_circle_rounded : Icons.bolt, size: 14),
                   label: Text(
-                    _isProcessingBatch ? 'Processing...' : 'Slim All ($pendingTasks)',
+                    _isProcessingBatch ? 'Stop Slimming' : 'Slim All ($pendingTasks)',
                     style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -3010,8 +3056,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 )
               else if (task.status == TaskStatus.compressing)
                 IconButton(
-                  icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
-                  onPressed: () => _engine.cancel(),
+                  tooltip: 'Stop Slimming',
+                  icon: const Icon(Icons.stop_circle, color: Colors.redAccent, size: 22),
+                  onPressed: () {
+                    _isBatchCancelled = true;
+                    _engine.cancel();
+                  },
                 )
               else if (task.status == TaskStatus.completed)
                 Row(
@@ -3174,19 +3224,60 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.save_alt, color: Color(0xFF00E676), size: 12),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'File: ${task.outputPath ?? _getDestinationDisplay(task)}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: 'monospace'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                  const SizedBox(height: 6),
+                  InkWell(
+                    onTap: () {
+                      final path = task.outputPath ?? _getDestinationDisplay(task);
+                      _revealInFolder(path);
+                    },
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E5FF).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.2)),
                       ),
-                    ],
+                      child: Row(
+                        children: [
+                          const Icon(Icons.folder_open_rounded, color: Color(0xFF00E5FF), size: 15),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              task.outputPath ?? _getDestinationDisplay(task),
+                              style: const TextStyle(
+                                color: Color(0xFF00E5FF),
+                                fontSize: 10.5,
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00E5FF).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Open Folder ↗',
+                                  style: TextStyle(
+                                    color: Color(0xFF00E5FF),
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                   if (task.proxyPath != null) ...[
                     const SizedBox(height: 4),
