@@ -34,7 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _activeEncoder = 'Detecting...';
   bool _isProcessingBatch = false;
   bool _isBatchCancelled = false;
-  CompressionPreset _selectedPreset = CompressionPreset.slim10x;
+  CompressionPreset _selectedPreset = CompressionPreset.smartAdaptive;
   int _customBitrateKbps = 10000;
 
   // Activation & License State
@@ -308,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
     int originalBitrateKbps = 100000,
     int width = 3840,
     int height = 2160,
+    String? sceneComplexity,
   }) {
     if (preset == CompressionPreset.custom) {
       return _customBitrateKbps;
@@ -315,11 +316,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final bool is4k = (width >= 3000 || height >= 1800);
 
+    // AI Content-Adaptive Intelligent Mode (Per-Scene Dynamic Motion Tuning)
+    if (preset == CompressionPreset.smartAdaptive) {
+      final isHighMotion = sceneComplexity?.contains('High Motion') ?? false;
+      final isLowMotion = sceneComplexity?.contains('Low Motion') ?? false;
+
+      if (is4k) {
+        if (isHighMotion) return 13500; // Extra bitrate for dance/baraat/confetti
+        if (isLowMotion) return 6000;   // Deep compression for static ceremonies/vows/talks
+        return 9500;                    // Studio balanced reference 4K
+      } else {
+        if (isHighMotion) return 4500;
+        if (isLowMotion) return 1800;
+        return 3000;
+      }
+    }
+
     if (is4k) {
       // 4K UHD Video Logic (Engineered for 65-inch 4K HDR Displays & Studio Wedding Shoots)
       if (originalBitrateKbps >= 80000) {
         // High-bitrate Camera Masters (100 - 400+ Mbps Sony FX3, Canon R5, Panasonic All-Intra)
         switch (preset) {
+          case CompressionPreset.smartAdaptive:
+            return 9500;
           case CompressionPreset.slim10x:
             // 12.5 Mbps 10-bit HEVC: Indistinguishable from raw on 65" TV, gives 15x-20x reduction (95% saved!)
             return 12500;
@@ -333,6 +352,8 @@ class _HomeScreenState extends State<HomeScreen> {
       } else if (originalBitrateKbps >= 35000) {
         // Intermediate Studio Masters (35 - 80 Mbps DaVinci Resolve / Premiere Pro exports)
         switch (preset) {
+          case CompressionPreset.smartAdaptive:
+            return 8500;
           case CompressionPreset.slim10x:
             // Scale by ~5.2x to achieve true ~80% space saving while retaining pin-sharp fidelity on 65" TV
             return (originalBitrateKbps / 5.2).round().clamp(7500, 11000);
@@ -346,6 +367,8 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         // Already Compressed 4K (e.g. Drone / Web / Smartphone < 35 Mbps)
         switch (preset) {
+          case CompressionPreset.smartAdaptive:
+            return 6500;
           case CompressionPreset.slim10x:
             return (originalBitrateKbps * 0.55).round().clamp(5500, 8500);
           case CompressionPreset.ultra15x:
@@ -360,6 +383,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // 1080p Full HD Video Logic (Pixel area is 1/4th of 4K)
       if (originalBitrateKbps >= 40000) {
         switch (preset) {
+          case CompressionPreset.smartAdaptive:
+            return 3200;
           case CompressionPreset.slim10x:
             return 4200;
           case CompressionPreset.ultra15x:
@@ -371,6 +396,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       } else {
         switch (preset) {
+          case CompressionPreset.smartAdaptive:
+            return 2500;
           case CompressionPreset.slim10x:
             return (originalBitrateKbps / 4.0).round().clamp(2500, 4200);
           case CompressionPreset.ultra15x:
@@ -456,19 +483,34 @@ class _HomeScreenState extends State<HomeScreen> {
     final meta = await _engine.probeVideo(task.inputPath);
     if (mounted) {
       setState(() {
-        task.durationMs = meta['durationMs'] as int;
-        task.width = meta['width'] as int;
-        task.height = meta['height'] as int;
-        task.fps = meta['fps'] as double;
-        task.originalBitrateKbps = meta['bitrateKbps'] as int;
-        task.targetBitrateKbps = _getBitrateForPreset(
-          task.preset,
-          originalBitrateKbps: task.originalBitrateKbps,
-          width: task.width,
-          height: task.height,
-        );
+        task.durationMs = meta['durationMs'] as int? ?? task.durationMs;
+        task.width = meta['width'] as int? ?? task.width;
+        task.height = meta['height'] as int? ?? task.height;
+        task.fps = meta['fps'] as double? ?? task.fps;
+        task.originalBitrateKbps = meta['bitrateKbps'] as int? ?? task.originalBitrateKbps;
         task.status = TaskStatus.idle;
       });
+    }
+
+    // AI Intelligence: Real-Time Scene Motion Complexity & Audio Anomaly Scan
+    try {
+      final complexity = await _engine.analyzeSceneComplexity(task.inputPath, durationMs: task.durationMs);
+      final audio = await _engine.detectAudioHealth(task.inputPath, hasAudio: meta['hasAudio'] as bool? ?? true);
+      if (mounted) {
+        setState(() {
+          task.sceneComplexity = complexity;
+          task.audioHealth = audio;
+          task.targetBitrateKbps = _getBitrateForPreset(
+            task.preset,
+            originalBitrateKbps: task.originalBitrateKbps,
+            width: task.width,
+            height: task.height,
+            sceneComplexity: task.sceneComplexity,
+          );
+        });
+      }
+    } catch (e) {
+      debugPrint('AI background scan error: $e');
     }
   }
 
@@ -479,6 +521,7 @@ class _HomeScreenState extends State<HomeScreen> {
       originalBitrateKbps: task.originalBitrateKbps,
       width: task.width,
       height: task.height,
+      sceneComplexity: task.sceneComplexity,
     );
 
     // Enforce 10 TB Annual Limit or Trial Limit
@@ -559,6 +602,13 @@ class _HomeScreenState extends State<HomeScreen> {
       // Feature 4: Safety Verification Check
       final isValid = await _engine.verifyVideo(outPath);
 
+      // AI Intelligence: Measure Studio Fidelity Score (SSIM & Master Comparison)
+      final fidelity = await _engine.measureFidelityScore(
+        sourcePath: task.inputPath,
+        outputPath: outPath,
+        durationMs: task.durationMs,
+      );
+
       if (mounted) {
         setState(() {
           task.status = TaskStatus.completed;
@@ -566,6 +616,7 @@ class _HomeScreenState extends State<HomeScreen> {
           task.outputPath = outPath;
           task.outputFileSize = outSize;
           task.isVerified = isValid;
+          task.fidelityScore = fidelity;
         });
       }
 
@@ -2067,7 +2118,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         _presetTile(
-          title: '10x Slim (Recommended)',
+          title: 'AI Content-Adaptive (Auto)',
+          subtitle: 'Per-Scene Motion & Entropy Tuning',
+          preset: CompressionPreset.smartAdaptive,
+          badge: 'AI INTELLIGENT',
+          badgeColor: const Color(0xFF00E5FF),
+          icon: Icons.auto_awesome,
+        ),
+        _presetTile(
+          title: '10x Slim (Reference)',
           subtitle: '10 Mbps 4K • Visually Lossless',
           preset: CompressionPreset.slim10x,
           badge: '90% SAVED',
@@ -2228,6 +2287,8 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
+                _mobilePresetChip('AI Auto', CompressionPreset.smartAdaptive),
+                const SizedBox(width: 6),
                 _mobilePresetChip('10x Slim', CompressionPreset.slim10x),
                 const SizedBox(width: 6),
                 _mobilePresetChip('15x Ultra', CompressionPreset.ultra15x),
@@ -2279,6 +2340,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 originalBitrateKbps: t.originalBitrateKbps,
                 width: t.width,
                 height: t.height,
+                sceneComplexity: t.sceneComplexity,
               );
             }
           }
@@ -2922,6 +2984,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required CompressionPreset preset,
     required String badge,
     required Color badgeColor,
+    IconData? icon,
   }) {
     final isSelected = _selectedPreset == preset;
     return InkWell(
@@ -2936,6 +2999,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 originalBitrateKbps: t.originalBitrateKbps,
                 width: t.width,
                 height: t.height,
+                sceneComplexity: t.sceneComplexity,
               );
             }
           }
@@ -2954,6 +3018,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: Row(
           children: [
+            if (icon != null) ...[
+              Icon(icon, color: isSelected ? const Color(0xFF00E5FF) : Colors.white60, size: 18),
+              const SizedBox(width: 8),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3030,12 +3098,63 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (task.relativeSubPath != null)
-                      Text(
-                        task.relativeSubPath!,
-                        style: const TextStyle(color: Colors.white38, fontSize: 10),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    const SizedBox(height: 3),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 3,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (task.relativeSubPath != null)
+                          Text(
+                            task.relativeSubPath!,
+                            style: const TextStyle(color: Colors.white38, fontSize: 10),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        if (task.sceneComplexity != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF7C4DFF).withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: const Color(0xFF7C4DFF).withOpacity(0.35)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.auto_awesome, color: Color(0xFFB388FF), size: 9),
+                                const SizedBox(width: 3),
+                                Text(
+                                  task.sceneComplexity!,
+                                  style: const TextStyle(color: Color(0xFFB388FF), fontSize: 9, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (task.audioHealth != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: task.audioHealth!.contains('⚠️')
+                                  ? Colors.redAccent.withOpacity(0.18)
+                                  : Colors.white.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: task.audioHealth!.contains('⚠️')
+                                    ? Colors.redAccent.withOpacity(0.4)
+                                    : Colors.white12,
+                              ),
+                            ),
+                            child: Text(
+                              task.audioHealth!,
+                              style: TextStyle(
+                                color: task.audioHealth!.contains('⚠️') ? Colors.redAccent : Colors.white60,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -3222,6 +3341,28 @@ class _HomeScreenState extends State<HomeScreen> {
                           style: const TextStyle(color: Color(0xFF00E676), fontSize: 9, fontWeight: FontWeight.w700),
                         ),
                       ),
+                      if (task.fidelityScore != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.4)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.auto_awesome, color: Color(0xFF00E5FF), size: 10),
+                              const SizedBox(width: 3),
+                              Text(
+                                'FIDELITY: ${task.fidelityScore!.toStringAsFixed(1)}% 🎯',
+                                style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 9, fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 6),

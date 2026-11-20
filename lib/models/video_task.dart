@@ -1,4 +1,5 @@
 enum CompressionPreset {
+  smartAdaptive, // AI Content-Adaptive Bitrate (Analyzes scene motion & entropy)
   slim10x,
   ultra15x,
   extreme20x,
@@ -46,6 +47,11 @@ class VideoTask {
   bool isOriginalTrashed;
   String? relativeSubPath;
 
+  // AI Studio Intelligence & Quality Assurance
+  double? fidelityScore; // e.g. 99.4 (%)
+  String? sceneComplexity; // 'High Motion (Dance / Action)', 'Balanced Studio', 'Low Motion (Ceremony / Talk)'
+  String? audioHealth; // 'Healthy Audio ✅', 'Silent / Muted Mic ⚠️', 'Audio Clipping Detected ⚠️'
+
   VideoTask({
     required this.id,
     required this.inputPath,
@@ -56,7 +62,7 @@ class VideoTask {
     this.height = 2160,
     this.fps = 30.0,
     this.originalBitrateKbps = 100000,
-    this.preset = CompressionPreset.slim10x,
+    this.preset = CompressionPreset.smartAdaptive,
     this.targetBitrateKbps = 10000,
     this.status = TaskStatus.idle,
     this.progress = 0.0,
@@ -74,6 +80,9 @@ class VideoTask {
     this.isVerified = false,
     this.isOriginalTrashed = false,
     this.relativeSubPath,
+    this.fidelityScore,
+    this.sceneComplexity,
+    this.audioHealth,
   });
 
   String get formattedInputSize => formatBytes(inputFileSize);
