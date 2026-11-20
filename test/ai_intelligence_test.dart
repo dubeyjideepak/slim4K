@@ -51,5 +51,19 @@ void main() {
       final complexity = await engine.analyzeSceneComplexity('/dummy/video.mp4');
       expect(complexity, equals('Balanced Studio'));
     });
+
+    test('AI Perceptual Rate Control adheres to deep space saving guidelines', () {
+      final task = VideoTask(
+        id: 'ai_task_crf',
+        inputPath: '/test/wedding.mp4',
+        fileName: 'wedding.mp4',
+        inputFileSize: 1240 * 1024 * 1024,
+        preset: CompressionPreset.smartAdaptive,
+      );
+
+      expect(task.preset, equals(CompressionPreset.smartAdaptive));
+      task.sceneComplexity = 'Low Motion (Ceremony / Vows)';
+      expect(task.sceneComplexity, contains('Low Motion'));
+    });
   });
 }

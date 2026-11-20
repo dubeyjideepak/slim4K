@@ -476,6 +476,10 @@ class CompressionEngine {
     }
 
     final bitrateK = task.targetBitrateKbps;
+    final isSmartAdaptive = task.preset == CompressionPreset.smartAdaptive;
+    final isHighMotion = task.sceneComplexity?.contains('High Motion') ?? false;
+    final isLowMotion = task.sceneComplexity?.contains('Low Motion') ?? false;
+    final int crfQuality = isHighMotion ? 24 : (isLowMotion ? 28 : 26);
 
     // Build FFmpeg command arguments
     final List<String> args = ['-y'];
@@ -519,9 +523,14 @@ class CompressionEngine {
         '-pix_fmt', 'p010le', // Studio 10-bit Main 10 profile for zero banding on 65" TV
         '-preset', 'p5', // High-fidelity studio preset
         '-rc:v', 'vbr',
-        '-cq:v', '23', // Visually lossless anchor on 4K displays
-        '-b:v', '${bitrateK}k',
-        '-maxrate', '${(bitrateK * 1.35).round()}k',
+        '-cq:v', isSmartAdaptive ? '$crfQuality' : '23',
+        if (isSmartAdaptive) ...[
+          '-b:v', '0', // In NVENC VBR mode, -b:v 0 instructs NVENC to rate-control purely by -cq:v perceptual quality
+          '-maxrate', '${(bitrateK * 1.5).round()}k',
+        ] else ...[
+          '-b:v', '${bitrateK}k',
+          '-maxrate', '${(bitrateK * 1.35).round()}k',
+        ],
         '-bufsize', '${(bitrateK * 2).round()}k',
         '-spatial_aq', '1', // Preserves facial detail, jewelry, wedding dress textures
         '-temporal_aq', '1', // Eliminates static background bitrate waste
@@ -540,9 +549,14 @@ class CompressionEngine {
         '-pix_fmt', 'p010le',
         '-preset', 'p4',
         '-rc:v', 'vbr',
-        '-cq:v', '23',
-        '-b:v', '${bitrateK}k',
-        '-maxrate', '${(bitrateK * 1.35).round()}k',
+        '-cq:v', isSmartAdaptive ? '$crfQuality' : '23',
+        if (isSmartAdaptive) ...[
+          '-b:v', '0',
+          '-maxrate', '${(bitrateK * 1.5).round()}k',
+        ] else ...[
+          '-b:v', '${bitrateK}k',
+          '-maxrate', '${(bitrateK * 1.35).round()}k',
+        ],
         '-bufsize', '${(bitrateK * 2).round()}k',
         '-spatial_aq', '1',
         '-g', '250',
@@ -556,8 +570,13 @@ class CompressionEngine {
       args.addAll([
         '-c:v', 'hevc_qsv',
         '-preset', 'fast',
-        '-b:v', '${bitrateK}k',
-        '-maxrate', '${(bitrateK * 1.35).round()}k',
+        if (isSmartAdaptive) ...[
+          '-global_quality', '$crfQuality',
+          '-maxrate', '${(bitrateK * 1.5).round()}k',
+        ] else ...[
+          '-b:v', '${bitrateK}k',
+          '-maxrate', '${(bitrateK * 1.35).round()}k',
+        ],
         '-bufsize', '${(bitrateK * 2).round()}k',
         '-g', '250',
         '-color_primaries', 'bt709',
@@ -571,8 +590,15 @@ class CompressionEngine {
         '-c:v', 'hevc_amf',
         '-pix_fmt', 'nv12',
         '-quality', 'quality',
-        '-b:v', '${bitrateK}k',
-        '-maxrate', '${(bitrateK * 1.35).round()}k',
+        if (isSmartAdaptive) ...[
+          '-rc', 'cqp',
+          '-qp_i', '$crfQuality',
+          '-qp_p', '${crfQuality + 2}',
+          '-maxrate', '${(bitrateK * 1.5).round()}k',
+        ] else ...[
+          '-b:v', '${bitrateK}k',
+          '-maxrate', '${(bitrateK * 1.35).round()}k',
+        ],
         '-bufsize', '${(bitrateK * 2).round()}k',
         '-g', '250',
         '-color_primaries', 'bt709',
@@ -598,8 +624,13 @@ class CompressionEngine {
         '-pix_fmt', 'yuv420p',
         '-preset', 'veryfast',
         '-threads', '0',
-        '-b:v', '${bitrateK}k',
-        '-maxrate', '${(bitrateK * 1.35).round()}k',
+        if (isSmartAdaptive) ...[
+          '-crf', '$crfQuality',
+          '-maxrate', '${(bitrateK * 1.5).round()}k',
+        ] else ...[
+          '-b:v', '${bitrateK}k',
+          '-maxrate', '${(bitrateK * 1.35).round()}k',
+        ],
         '-bufsize', '${(bitrateK * 2).round()}k',
         '-x265-params', 'no-sao=1:keyint=250',
         '-color_primaries', 'bt709',
