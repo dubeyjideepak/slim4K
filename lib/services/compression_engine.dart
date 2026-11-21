@@ -892,7 +892,7 @@ class CompressionEngine {
     }
   }
 
-  /// AI Scene Complexity Analyzer: Probes motion vectors & spatial entropy in ~0.2s
+  /// Scene Complexity Analyzer: Probes motion vectors & spatial entropy in ~0.2s
   /// Returns 'High Motion (Dance / Action)', 'Balanced Studio', or 'Low Motion (Ceremony / Talk)'
   Future<String> analyzeSceneComplexity(String filePath, {int durationMs = 0}) async {
     try {
@@ -932,12 +932,12 @@ class CompressionEngine {
         }
       }
     } catch (e) {
-      debugPrint('AI Scene Complexity probe fallback: $e');
+      debugPrint('Scene Complexity probe fallback: $e');
     }
     return 'Balanced Studio';
   }
 
-  /// AI Audio Health Scanner: Detects dead/muted wireless mics, audio clipping, or clean sound
+  /// Audio Health Scanner: Detects dead/muted wireless mics, audio clipping, or clean sound
   Future<String> detectAudioHealth(String filePath, {bool hasAudio = true}) async {
     if (!hasAudio) return 'No Audio Stream';
     try {
@@ -971,7 +971,7 @@ class CompressionEngine {
     return 'Healthy Audio ✅';
   }
 
-  /// AI Studio Fidelity Score (Auto-QA): Measures SSIM (Structural Similarity) against Master
+  /// Studio Fidelity Score (Auto-QA): Measures SSIM (Structural Similarity) against Master
   /// Returns a verified fidelity score percentage (e.g. 99.4%)
   Future<double> measureFidelityScore({
     required String sourcePath,

@@ -1,5 +1,5 @@
 enum CompressionPreset {
-  smartAdaptive, // AI Content-Adaptive Bitrate (Analyzes scene motion & entropy)
+  smartAdaptive, // Dynamic Content-Adaptive Bitrate (Analyzes scene motion & entropy)
   slim10x,
   ultra15x,
   extreme20x,
@@ -47,7 +47,7 @@ class VideoTask {
   bool isOriginalTrashed;
   String? relativeSubPath;
 
-  // AI Studio Intelligence & Quality Assurance
+  // Studio Quality Assurance & Analysis
   double? fidelityScore; // e.g. 99.4 (%)
   String? sceneComplexity; // 'High Motion (Dance / Action)', 'Balanced Studio', 'Low Motion (Ceremony / Talk)'
   String? audioHealth; // 'Healthy Audio ✅', 'Silent / Muted Mic ⚠️', 'Audio Clipping Detected ⚠️'

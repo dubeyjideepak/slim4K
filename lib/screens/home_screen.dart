@@ -316,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final bool is4k = (width >= 3000 || height >= 1800);
 
-    // AI Content-Adaptive Intelligent Mode (Perceptual Rate-Distortion & Dynamic Motion Tuning)
+    // Content-Adaptive Dynamic Mode (Perceptual Rate-Distortion & Motion Tuning)
     if (preset == CompressionPreset.smartAdaptive) {
       final isHighMotion = sceneComplexity?.contains('High Motion') ?? false;
       final isLowMotion = sceneComplexity?.contains('Low Motion') ?? false;
@@ -492,7 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    // AI Intelligence: Real-Time Scene Motion Complexity & Audio Anomaly Scan
+    // Scene Analysis: Real-Time Motion Complexity & Audio Anomaly Scan
     try {
       final complexity = await _engine.analyzeSceneComplexity(task.inputPath, durationMs: task.durationMs);
       final audio = await _engine.detectAudioHealth(task.inputPath, hasAudio: meta['hasAudio'] as bool? ?? true);
@@ -510,7 +510,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     } catch (e) {
-      debugPrint('AI background scan error: $e');
+      debugPrint('Background scan error: $e');
     }
   }
 
@@ -602,7 +602,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Feature 4: Safety Verification Check
       final isValid = await _engine.verifyVideo(outPath);
 
-      // AI Intelligence: Measure Studio Fidelity Score (SSIM & Master Comparison)
+      // Studio Quality Assurance: Measure Studio Fidelity Score (SSIM & Master Comparison)
       final fidelity = await _engine.measureFidelityScore(
         sourcePath: task.inputPath,
         outputPath: outPath,
@@ -1838,174 +1838,177 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0D1117),
         elevation: 0,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Image.asset(
-                'assets/icon/app_icon_1024.png',
-                width: 24,
-                height: 24,
-                fit: BoxFit.cover,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF00E5FF), Color(0xFF7C4DFF)],
+        title: Builder(
+          builder: (context) {
+            final isWide = MediaQuery.of(context).size.width >= 1150;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    'assets/icon/app_icon_1024.png',
+                    width: 24,
+                    height: 24,
+                    fit: BoxFit.cover,
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Text(
-                'SLIM 4K',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14,
-                  letterSpacing: 1.2,
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF00E5FF), Color(0xFF7C4DFF)],
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'SLIM 4K',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Flexible(
-              child: Text(
-                'Cameraman Archive & Storage Saver',
-                style: TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+                if (isWide) ...[
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Cameraman Archive & Storage Saver',
+                    style: TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
         actions: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          // Google Sign-In / User Profile
+          _googleAuthButtonOrProfile(),
+          // License pill (shown if trial or on wider screen)
+          Builder(
+            builder: (context) {
+              final isWide = MediaQuery.of(context).size.width >= 1050;
+              if (_activation != null && (!_activation!.isActive || isWide)) {
+                return _licenseStatusBadge(_activation!);
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          // 10 TB Annual Quota pill
+          _quotaStatusBadge(),
+          // Mode switch pill
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF161B22),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF30363D)),
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Google Sign-In / User Profile
-                _googleAuthButtonOrProfile(),
-                // License pill
-                if (_activation != null)
-                  _licenseStatusBadge(_activation!),
-                // 10 TB Annual Quota pill
-                _quotaStatusBadge(),
-                // Mode switch pill
-                Container(
-                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                  padding: const EdgeInsets.all(3),
+                _modeButton(
+                  title: 'Files',
+                  icon: Icons.movie_outlined,
+                  isSelected: !_isFolderArchiveMode,
+                  onTap: () => setState(() => _isFolderArchiveMode = false),
+                ),
+                _modeButton(
+                  title: 'Project Folder',
+                  icon: Icons.folder_special_outlined,
+                  isSelected: _isFolderArchiveMode,
+                  onTap: () => setState(() => _isFolderArchiveMode = true),
+                ),
+              ],
+            ),
+          ),
+          // In-App Update badge (ONLY visible when a new version has arrived)
+          if (_availableUpdate != null && _availableUpdate!.isUpdateAvailable)
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  elevation: 2,
+                ),
+                onPressed: () => _showUpdateDialog(_availableUpdate!),
+                icon: const Icon(Icons.system_update_rounded, size: 14, color: Colors.black),
+                label: Text(
+                  'Update to v' + _availableUpdate!.latestVersion,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+                ),
+              ),
+            ),
+          // Encoder badge
+          Builder(
+            builder: (context) {
+              final isGpu = _activeEncoder.contains('videotoolbox') ||
+                  _activeEncoder.contains('mediacodec') ||
+                  _activeEncoder.contains('nvenc') ||
+                  _activeEncoder.contains('qsv') ||
+                  _activeEncoder.contains('amf') ||
+                  _activeEncoder.contains('vaapi');
+
+              String label = _activeEncoder;
+              if (_activeEncoder.contains('nvenc')) {
+                label = '⚡ NVIDIA GPU';
+              } else if (_activeEncoder.contains('qsv')) {
+                label = '⚡ Intel QSV';
+              } else if (_activeEncoder.contains('amf')) {
+                label = '⚡ AMD Radeon';
+              } else if (_activeEncoder.contains('videotoolbox')) {
+                label = '⚡ Apple Silicon';
+              } else if (_activeEncoder.contains('mediacodec')) {
+                label = '⚡ Hardware';
+              } else if (_activeEncoder.contains('libx265')) {
+                label = '⚠️ CPU';
+              }
+
+              return Tooltip(
+                message: isGpu
+                    ? 'Hardware GPU Acceleration Active ()'
+                    : 'CPU Software Encoding Active ()',
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xFF161B22),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF30363D)),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isGpu ? const Color(0xFF00E676) : Colors.amber,
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _modeButton(
-                        title: 'Files',
-                        icon: Icons.movie_outlined,
-                        isSelected: !_isFolderArchiveMode,
-                        onTap: () => setState(() => _isFolderArchiveMode = false),
+                      Icon(
+                        isGpu ? Icons.bolt : Icons.memory,
+                        color: isGpu ? const Color(0xFF00E676) : Colors.amber,
+                        size: 14,
                       ),
-                      _modeButton(
-                        title: 'Project Folder',
-                        icon: Icons.folder_special_outlined,
-                        isSelected: _isFolderArchiveMode,
-                        onTap: () => setState(() => _isFolderArchiveMode = true),
+                      const SizedBox(width: 4),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: isGpu ? const Color(0xFF00E676) : Colors.amber,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                // In-App Update badge (ONLY visible when a new version has arrived)
-                if (_availableUpdate != null && _availableUpdate!.isUpdateAvailable)
-                  Container(
-                    margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00E5FF),
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                        elevation: 2,
-                      ),
-                      onPressed: () => _showUpdateDialog(_availableUpdate!),
-                      icon: const Icon(Icons.system_update_rounded, size: 14, color: Colors.black),
-                      label: Text(
-                        'Update to v${_availableUpdate!.latestVersion}',
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
-                      ),
-                    ),
-                  ),
-                // Encoder badge
-                Builder(
-                  builder: (context) {
-                    final isGpu = _activeEncoder.contains('videotoolbox') ||
-                        _activeEncoder.contains('mediacodec') ||
-                        _activeEncoder.contains('nvenc') ||
-                        _activeEncoder.contains('qsv') ||
-                        _activeEncoder.contains('amf') ||
-                        _activeEncoder.contains('vaapi');
-
-                    String label = _activeEncoder;
-                    if (_activeEncoder.contains('nvenc')) {
-                      label = '⚡ NVIDIA GPU (NVENC)';
-                    } else if (_activeEncoder.contains('qsv')) {
-                      label = '⚡ Intel QuickSync (QSV)';
-                    } else if (_activeEncoder.contains('amf')) {
-                      label = '⚡ AMD Radeon (AMF)';
-                    } else if (_activeEncoder.contains('videotoolbox')) {
-                      label = '⚡ Apple Silicon (GPU)';
-                    } else if (_activeEncoder.contains('mediacodec')) {
-                      label = '⚡ Hardware (MediaCodec)';
-                    } else if (_activeEncoder.contains('libx265')) {
-                      label = '⚠️ CPU Mode (libx265)';
-                    }
-
-                    return Tooltip(
-                      message: isGpu
-                          ? 'Hardware GPU Acceleration Active ($_activeEncoder)'
-                          : 'CPU Software Encoding Active ($_activeEncoder)',
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF161B22),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: isGpu ? const Color(0xFF00E676) : Colors.amber,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              isGpu ? Icons.bolt : Icons.memory,
-                              color: isGpu ? const Color(0xFF00E676) : Colors.amber,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              label,
-                              style: TextStyle(
-                                color: isGpu ? const Color(0xFF00E676) : Colors.amber,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
+              );
+            },
           ),
-        ],
+          const SizedBox(width: 8),
+        ]
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -2127,10 +2130,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         _presetTile(
-          title: 'AI Content-Adaptive (Auto)',
+          title: 'Content-Adaptive (Auto)',
           subtitle: 'Perceptual CRF • 2x–3x Deeper Space Saving',
           preset: CompressionPreset.smartAdaptive,
-          badge: 'AI INTELLIGENT',
+          badge: 'SMART ADAPTIVE',
           badgeColor: const Color(0xFF00E5FF),
           icon: Icons.auto_awesome,
         ),
@@ -2296,7 +2299,7 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _mobilePresetChip('AI Auto', CompressionPreset.smartAdaptive),
+                _mobilePresetChip('Auto Adaptive', CompressionPreset.smartAdaptive),
                 const SizedBox(width: 6),
                 _mobilePresetChip('10x Slim', CompressionPreset.slim10x),
                 const SizedBox(width: 6),

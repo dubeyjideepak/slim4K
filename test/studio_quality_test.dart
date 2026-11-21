@@ -3,10 +3,10 @@ import 'package:slim4k/models/video_task.dart';
 import 'package:slim4k/services/compression_engine.dart';
 
 void main() {
-  group('AI Studio Intelligence Unit Tests', () {
-    test('VideoTask AI defaults and fields', () {
+  group('Studio Quality & Motion Intelligence Unit Tests', () {
+    test('VideoTask defaults and fields', () {
       final task = VideoTask(
-        id: 'ai_task_1',
+        id: 'smart_task_1',
         inputPath: '/test/video.mp4',
         fileName: 'video.mp4',
         inputFileSize: 500 * 1024 * 1024,
@@ -52,9 +52,9 @@ void main() {
       expect(complexity, equals('Balanced Studio'));
     });
 
-    test('AI Perceptual Rate Control adheres to deep space saving guidelines', () {
+    test('Perceptual Rate Control adheres to deep space saving guidelines', () {
       final task = VideoTask(
-        id: 'ai_task_crf',
+        id: 'task_crf',
         inputPath: '/test/wedding.mp4',
         fileName: 'wedding.mp4',
         inputFileSize: 1240 * 1024 * 1024,
