@@ -62,10 +62,10 @@ void main() {
     });
 
     test('AppUpdateService version comparison logic', () {
-      expect(AppUpdateService.currentAppVersion, equals('1.0.6'));
-      expect(AppUpdateService().isVersionGreater('1.0.7', '1.0.6'), isTrue);
-      expect(AppUpdateService().isVersionGreater('1.0.6', '1.0.6'), isFalse);
-      expect(AppUpdateService().isVersionGreater('1.0.5', '1.0.6'), isFalse);
+      expect(AppUpdateService.currentAppVersion, equals('1.0.7'));
+      expect(AppUpdateService().isVersionGreater('1.0.8', '1.0.7'), isTrue);
+      expect(AppUpdateService().isVersionGreater('1.0.7', '1.0.7'), isFalse);
+      expect(AppUpdateService().isVersionGreater('1.0.6', '1.0.7'), isFalse);
     });
   });
 }
