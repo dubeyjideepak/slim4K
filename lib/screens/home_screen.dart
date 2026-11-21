@@ -2276,12 +2276,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         _presetTile(
-          title: 'Content-Adaptive (Auto)',
-          subtitle: 'Perceptual CRF • 2x–3x Deeper Space Saving',
+          title: 'Content-Adaptive',
           preset: CompressionPreset.smartAdaptive,
           badge: 'SMART ADAPTIVE',
           badgeColor: const Color(0xFF00E5FF),
-          icon: Icons.auto_awesome,
         ),
         _presetTile(
           title: '10x Slim (Reference)',
@@ -2459,7 +2457,7 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _mobilePresetChip('Auto Adaptive', CompressionPreset.smartAdaptive),
+                _mobilePresetChip('Content-Adaptive', CompressionPreset.smartAdaptive),
                 const SizedBox(width: 6),
                 _mobilePresetChip('10x Slim', CompressionPreset.slim10x),
                 const SizedBox(width: 6),
@@ -3158,7 +3156,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _presetTile({
     required String title,
-    required String subtitle,
+    String? subtitle,
     required CompressionPreset preset,
     required String badge,
     required Color badgeColor,
@@ -3212,11 +3210,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       fontSize: 13,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(color: Colors.white38, fontSize: 11),
-                  ),
+                  if (subtitle != null && subtitle.trim().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -3299,7 +3299,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.auto_awesome, color: Color(0xFFB388FF), size: 9),
+                                const Icon(Icons.tune_rounded, color: Color(0xFFB388FF), size: 10),
                                 const SizedBox(width: 3),
                                 Text(
                                   task.sceneComplexity!,
@@ -3531,7 +3531,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.auto_awesome, color: Color(0xFF00E5FF), size: 10),
+                              const Icon(Icons.verified_rounded, color: Color(0xFF00E5FF), size: 10),
                               const SizedBox(width: 3),
                               Text(
                                 'FIDELITY: ${task.fidelityScore!.toStringAsFixed(1)}% 🎯',
