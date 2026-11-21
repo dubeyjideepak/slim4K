@@ -420,7 +420,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                           _isActivated
                               ? 'License Activated Successfully!'
                               : (widget.isTrialExpired
-                                  ? '2.0 GB Free Trial Finished'
+                                  ? '${QuotaService.defaultTrialLimitGb.toStringAsFixed(0)} GB Free Trial Finished'
                                   : 'NeerTech Slim4K Studio License'),
                           style: const TextStyle(
                             color: Colors.white,

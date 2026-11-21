@@ -250,15 +250,15 @@ class CompressionEngine {
 
   /// Scans a project folder recursively, identifies video & non-video files,
   /// and builds the mirror destination directory paths.
-  Future<ProjectScanResult> scanProjectFolder(String sourceDirPath) async {
+  Future<ProjectScanResult> scanProjectFolder(String sourceDirPath, {String? customTargetBaseDir}) async {
     final sourceDir = Directory(sourceDirPath);
     if (!await sourceDir.exists()) {
       throw Exception('Source directory does not exist: $sourceDirPath');
     }
 
-    final parentDir = sourceDir.parent.path;
+    final parentDir = customTargetBaseDir ?? sourceDir.parent.path;
     final folderName = p.basename(sourceDirPath);
-    final targetDirPath = p.join(parentDir, '${folderName}_SlimArchive');
+    final targetDirPath = p.join(parentDir, '${folderName}_Slimmed');
 
     final List<VideoTask> videoTasks = [];
     final List<File> nonVideoFiles = [];
@@ -350,13 +350,14 @@ class CompressionEngine {
       baseOutputDir = docDir.path;
     }
 
-    // Always create a dedicated 'Slim4K_Output' folder so compressed files are never mixed with raw source videos
-    final outputFolder = Directory(p.join(baseOutputDir, 'Slim4K_Output'));
+    final baseName = p.basenameWithoutExtension(task.inputPath);
+
+    // Always create a subjective separate folder side-by-side named after the source file/folder: '${baseName}_Slimmed'
+    final outputFolder = Directory(p.join(baseOutputDir, '${baseName}_Slimmed'));
     if (!await outputFolder.exists()) {
       await outputFolder.create(recursive: true);
     }
 
-    final baseName = p.basenameWithoutExtension(task.inputPath);
     return p.join(outputFolder.path, '${baseName}_slim.mp4');
   }
 

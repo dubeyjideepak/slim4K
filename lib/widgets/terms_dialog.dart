@@ -103,9 +103,9 @@ class Slim4KTermsDialog extends StatelessWidget {
 
                           _buildTermSection(
                             number: '2',
-                            title: 'Complimentary 2.0 GB Free Evaluation Quota',
-                            hindiSummary: 'हर नए कंप्यूटर को 2.0 GB का फ्री ट्रायल मिलता है ताकि आप वीडियो क्वालिटी, कंप्रेशन स्पीड और अपने ग्राफिक्स कार्ड की अनुकूलता पहले जांच सकें।',
-                            body: 'Every newly registered workstation or Google account is granted an upfront 2.0 GB free quota. This trial allows cameramen, editors, and studios to thoroughly test compression speed, visual quality retention, and hardware acceleration on actual studio footage before making any commercial purchase.',
+                            title: 'Complimentary 50.0 GB Free Evaluation Quota',
+                            hindiSummary: 'हर नए कंप्यूटर को 50.0 GB का फ्री ट्रायल मिलता है ताकि आप वीडियो क्वालिटी, कंप्रेशन स्पीड और अपने ग्राफिक्स कार्ड की अनुकूलता पहले जांच सकें।',
+                            body: 'Every newly registered workstation or Google account is granted an upfront 50.0 GB free quota. This trial allows cameramen, editors, and studios to thoroughly test compression speed, visual quality retention, and hardware acceleration on actual studio footage before making any commercial purchase.',
                           ),
 
                           _buildTermSection(
@@ -118,8 +118,8 @@ class Slim4KTermsDialog extends StatelessWidget {
                           _buildTermSection(
                             number: '4',
                             title: 'No-Refund Policy for Activated Digital Goods',
-                            hindiSummary: 'चूंकि 2.0 GB का पूरा फ्री ट्रायल सॉफ्टवेयर और क्वालिटी की जांच हेतु पहले ही दिया जाता है, इसलिए भुगतान व लाइसेंस एक्टिवेशन के बाद कोई रिफंड देय नहीं होगा।',
-                            body: 'Because Slim4K provides an unrestricted 2.0 GB free evaluation trial for full testing of software capabilities, GPU speeds, and output quality prior to purchase, all commercial license purchases (via UPI, Card, NetBanking, or QR) are strictly non-refundable and non-cancellable once activated or generated.',
+                            hindiSummary: 'चूंकि 50.0 GB का पूरा फ्री ट्रायल सॉफ्टवेयर और क्वालिटी की जांच हेतु पहले ही दिया जाता है, इसलिए भुगतान व लाइसेंस एक्टिवेशन के बाद कोई रिफंड देय नहीं होगा।',
+                            body: 'Because Slim4K provides an unrestricted 50.0 GB free evaluation trial for full testing of software capabilities, GPU speeds, and output quality prior to purchase, all commercial license purchases (via UPI, Card, NetBanking, or QR) are strictly non-refundable and non-cancellable once activated or generated.',
                           ),
 
                           _buildTermSection(

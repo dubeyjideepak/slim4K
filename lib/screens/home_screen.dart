@@ -44,7 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Professional Videographer Options
   bool _isFolderArchiveMode = false;
-  bool _saveFilesInPlace = true;
+  bool _saveFilesInPlace = false; // Default: separate subjective side-by-side folder (<Name>_Slimmed)
+  String? _customGlobalDestinationDir; // User-selected custom destination path from system
   ProjectScanResult? _projectScanResult;
   bool _generateProxies = false;
   bool _preserveOriginalAudio = true;
@@ -455,7 +456,10 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       try {
-        final result = await _engine.scanProjectFolder(selectedDir);
+        final result = await _engine.scanProjectFolder(
+          selectedDir,
+          customTargetBaseDir: _customGlobalDestinationDir,
+        );
         setState(() {
           _projectScanResult = result;
           _tasks.clear();
@@ -548,11 +552,21 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // Determine target output path
       String? customTarget = task.customOutputPath;
-      if (customTarget == null && _projectScanResult != null && task.relativeSubPath != null) {
-        if (!_saveFilesInPlace) {
-          final ext = p.extension(task.inputPath);
-          final baseWithoutExt = p.withoutExtension(task.relativeSubPath!);
-          customTarget = p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
+      if (customTarget == null) {
+        if (_projectScanResult != null && task.relativeSubPath != null) {
+          if (!_saveFilesInPlace) {
+            final ext = p.extension(task.inputPath);
+            final baseWithoutExt = p.withoutExtension(task.relativeSubPath!);
+            customTarget = p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
+          }
+        } else {
+          final baseName = p.basenameWithoutExtension(task.inputPath);
+          final targetBaseDir = _customGlobalDestinationDir ?? p.dirname(task.inputPath);
+          final folder = Directory(p.join(targetBaseDir, '${baseName}_Slimmed'));
+          if (!folder.existsSync()) {
+            folder.createSync(recursive: true);
+          }
+          customTarget = p.join(folder.path, '${baseName}_slim.mp4');
         }
       }
 
@@ -563,7 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_quotaService.isTrialMode) {
             final currentProcessed = (task.inputFileSize * progress).round();
             if (_quotaService.isHardLimitExceeded(additionalBytes: currentProcessed)) {
-              return false; // Stop slimming immediately if it surpasses 2.5 GB trial ceiling!
+              return false; // Stop slimming immediately if it surpasses trial ceiling
             }
           }
           return true;
@@ -632,7 +646,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           task.status = TaskStatus.idle;
           task.progress = 0.0;
-          task.errorMessage = 'Trial limit of 2.0 GB reached during processing. Upgrade to continue.';
+          task.errorMessage = 'Trial limit of ${_quotaService.trialLimitGb.toStringAsFixed(0)} GB reached during processing. Upgrade to continue.';
         });
 
         // Prompt payment dialog
@@ -899,8 +913,140 @@ class _HomeScreenState extends State<HomeScreen> {
       return p.join(_projectScanResult!.targetDir, '${baseWithoutExt}_slim$ext');
     }
     final baseName = p.basenameWithoutExtension(task.inputPath);
-    final inputDir = p.dirname(task.inputPath);
-    return p.join(inputDir, 'Slim4K_Output', '${baseName}_slim.mp4');
+    final targetBaseDir = _customGlobalDestinationDir ?? p.dirname(task.inputPath);
+    return p.join(targetBaseDir, '${baseName}_Slimmed', '${baseName}_slim.mp4');
+  }
+
+  Future<void> _chooseGlobalDestinationFolder() async {
+    try {
+      final selectedDir = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Select Output Destination Folder for Slimmed Videos',
+      );
+      if (selectedDir != null && mounted) {
+        setState(() {
+          _customGlobalDestinationDir = selectedDir;
+          if (_projectScanResult != null) {
+            final folderName = p.basename(_projectScanResult!.sourceDir);
+            _projectScanResult = ProjectScanResult(
+              sourceDir: _projectScanResult!.sourceDir,
+              targetDir: p.join(selectedDir, '${folderName}_Slimmed'),
+              videoTasks: _projectScanResult!.videoTasks,
+              nonVideoFiles: _projectScanResult!.nonVideoFiles,
+              totalSourceBytes: _projectScanResult!.totalSourceBytes,
+            );
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Output folder set to: $selectedDir'),
+            backgroundColor: const Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error choosing global folder: $e');
+    }
+  }
+
+  void _resetGlobalDestinationFolder() {
+    setState(() {
+      _customGlobalDestinationDir = null;
+      if (_projectScanResult != null) {
+        final parentDir = Directory(_projectScanResult!.sourceDir).parent.path;
+        final folderName = p.basename(_projectScanResult!.sourceDir);
+        _projectScanResult = ProjectScanResult(
+          sourceDir: _projectScanResult!.sourceDir,
+          targetDir: p.join(parentDir, '${folderName}_Slimmed'),
+          videoTasks: _projectScanResult!.videoTasks,
+          nonVideoFiles: _projectScanResult!.nonVideoFiles,
+          totalSourceBytes: _projectScanResult!.totalSourceBytes,
+        );
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Reset to separate side-by-side folder (<Name>_Slimmed)'),
+        backgroundColor: Color(0xFF00E5FF),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _destinationFolderWidget() {
+    final isCustom = _customGlobalDestinationDir != null;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161B22),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isCustom ? const Color(0xFF00E5FF) : const Color(0xFF30363D),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isCustom ? Icons.folder_special_rounded : Icons.create_new_folder_outlined,
+                color: isCustom ? const Color(0xFF00E5FF) : const Color(0xFF00E676),
+                size: 15,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  isCustom ? 'CUSTOM DESTINATION' : 'SIDE-BY-SIDE SEPARATE FOLDER',
+                  style: TextStyle(
+                    color: isCustom ? const Color(0xFF00E5FF) : const Color(0xFF00E676),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            isCustom
+                ? _customGlobalDestinationDir!
+                : 'Creates <Name>_Slimmed/ folder in same location',
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF00E5FF),
+                  side: const BorderSide(color: Color(0xFF00E5FF), width: 0.8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+                onPressed: _chooseGlobalDestinationFolder,
+                icon: const Icon(Icons.folder_open, size: 13),
+                label: Text(
+                  isCustom ? 'Change...' : 'Choose Folder...',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+              if (isCustom) ...[
+                const SizedBox(width: 6),
+                TextButton(
+                  onPressed: _resetGlobalDestinationFolder,
+                  child: const Text('Reset', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   // Feature 3: ROI Calculations
@@ -1525,11 +1671,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              _dialogInfoRow('Account Plan', _quotaService.isLicenseActivated ? 'Pro Studio 10 TB (Active ✅)' : 'Free Trial (2.0 GB)'),
+              _dialogInfoRow('Account Plan', _quotaService.isLicenseActivated ? 'Pro Studio 10 TB (Active ✅)' : 'Free Trial (${_quotaService.trialLimitGb.toStringAsFixed(0)} GB)'),
               const Divider(color: Color(0xFF21262D)),
               _dialogInfoRow('Active Seats', '${_quotaService.activeSeats.length} / ${_quotaService.maxSeats} Workstations (Cap: 2 PCs)'),
               const Divider(color: Color(0xFF21262D)),
-              _dialogInfoRow('Total Slimmed', _quotaService.isTrialMode ? '${_quotaService.trialUsedGb.toStringAsFixed(2)} GB / 2.0 GB' : '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB'),
+              _dialogInfoRow('Total Slimmed', _quotaService.isTrialMode ? '${_quotaService.trialUsedGb.toStringAsFixed(2)} GB / ${_quotaService.trialLimitGb.toStringAsFixed(0)} GB' : '${_quotaService.totalTbSlimmed.toStringAsFixed(2)} TB / ${_quotaService.quotaLimitTb.toStringAsFixed(0)} TB'),
               const Divider(color: Color(0xFF21262D)),
               _dialogInfoRow('Total Saved', '${_quotaService.totalTbSaved.toStringAsFixed(2)} TB'),
               const Divider(color: Color(0xFF21262D)),
@@ -2213,6 +2359,20 @@ class _HomeScreenState extends State<HomeScreen> {
           value: _generateProxies,
           onChanged: (val) => setState(() => _generateProxies = val),
         ),
+        const SizedBox(height: 14),
+        const Divider(color: Color(0xFF21262D)),
+        const SizedBox(height: 10),
+        const Text(
+          'OUTPUT DESTINATION',
+          style: TextStyle(
+            color: Colors.white54,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _destinationFolderWidget(),
         const SizedBox(height: 18),
         SizedBox(
           width: double.infinity,
@@ -2486,7 +2646,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final limitTb = _quotaService.quotaLimitTb;
 
               final String quotaTitle = isTrial
-                  ? (isExceeded ? 'FREE TRIAL LIMIT EXCEEDED (2.0 GB)' : 'FREE TRIAL DATA CONSUMED (2.0 GB LIMIT)')
+                  ? (isExceeded ? 'FREE TRIAL LIMIT EXCEEDED (${limitGb.toStringAsFixed(0)} GB)' : 'FREE TRIAL DATA CONSUMED (${limitGb.toStringAsFixed(0)} GB LIMIT)')
                   : 'ANNUAL SLIMMER QUOTA (10 TB LICENSE)';
 
               final String usageText = isTrial
@@ -2807,16 +2967,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: Text(
                     _saveFilesInPlace
-                        ? 'Saving each video as <filename>_slim.mp4 inside the folder (Originals intact)'
-                        : 'Mirroring entire tree into: ${p.basename(_projectScanResult!.targetDir)}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        ? 'Saving into source folder as <filename>_slim.mp4 (Originals intact)'
+                        : 'Separate side-by-side folder: ${p.basename(_projectScanResult!.targetDir)}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 TextButton(
                   onPressed: () => setState(() => _saveFilesInPlace = !_saveFilesInPlace),
                   child: Text(
-                    _saveFilesInPlace ? 'Switch to Mirror Folder' : 'Switch to In-Place',
+                    _saveFilesInPlace ? 'Switch to Separate Folder' : 'Switch to In-Place',
                     style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11),
                   ),
                 ),

@@ -44,28 +44,28 @@ void main() {
       expect((tenTbBytes - 1) >= tenTbBytes, isFalse);
     });
 
-    test('Strict 2.0 GB Trial Limit & Live Hard Processing Ceiling', () {
-      expect(QuotaService.trialLimitBytes, 2 * 1024 * 1024 * 1024);
-      expect(QuotaService.defaultTrialLimitGb, 2.0);
+    test('Strict 50.0 GB Trial Limit & Live Hard Processing Ceiling', () {
+      expect(QuotaService.trialLimitBytes, 50 * 1024 * 1024 * 1024);
+      expect(QuotaService.defaultTrialLimitGb, 50.0);
 
-      expect(QuotaService.trialHardLimitBytes, 2 * 1024 * 1024 * 1024);
-      expect(QuotaService.defaultTrialHardLimitGb, 2.0);
+      expect(QuotaService.trialHardLimitBytes, 50 * 1024 * 1024 * 1024);
+      expect(QuotaService.defaultTrialHardLimitGb, 50.0);
 
       final quota = QuotaService();
       // Initially 0 bytes processed:
-      expect(quota.isHardLimitExceeded(additionalBytes: 1 * 1024 * 1024 * 1024), isFalse);
-      expect(quota.isHardLimitExceeded(additionalBytes: (2 * 1024 * 1024 * 1024) - 1), isFalse);
+      expect(quota.isHardLimitExceeded(additionalBytes: 25 * 1024 * 1024 * 1024), isFalse);
+      expect(quota.isHardLimitExceeded(additionalBytes: (50 * 1024 * 1024 * 1024) - 1), isFalse);
 
-      // Reaches or surpasses strict 2.0 GB:
-      expect(quota.isHardLimitExceeded(additionalBytes: 2 * 1024 * 1024 * 1024), isTrue);
-      expect(quota.isHardLimitExceeded(additionalBytes: 3 * 1024 * 1024 * 1024), isTrue);
+      // Reaches or surpasses strict 50.0 GB:
+      expect(quota.isHardLimitExceeded(additionalBytes: 50 * 1024 * 1024 * 1024), isTrue);
+      expect(quota.isHardLimitExceeded(additionalBytes: 55 * 1024 * 1024 * 1024), isTrue);
     });
 
     test('AppUpdateService version comparison logic', () {
-      expect(AppUpdateService.currentAppVersion, equals('1.0.5'));
-      expect(AppUpdateService().isVersionGreater('1.0.6', '1.0.5'), isTrue);
-      expect(AppUpdateService().isVersionGreater('1.0.5', '1.0.5'), isFalse);
-      expect(AppUpdateService().isVersionGreater('1.0.4', '1.0.5'), isFalse);
+      expect(AppUpdateService.currentAppVersion, equals('1.0.6'));
+      expect(AppUpdateService().isVersionGreater('1.0.7', '1.0.6'), isTrue);
+      expect(AppUpdateService().isVersionGreater('1.0.6', '1.0.6'), isFalse);
+      expect(AppUpdateService().isVersionGreater('1.0.5', '1.0.6'), isFalse);
     });
   });
 }
