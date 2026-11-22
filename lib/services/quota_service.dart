@@ -32,13 +32,13 @@ class QuotaService extends ChangeNotifier {
   static const int defaultQuotaBytes = 10 * 1024 * 1024 * 1024 * 1024; // 10,995,116,277,760
   static const double defaultQuotaTb = 10.0;
 
-  /// 50.0 GB Free Trial Limit for testing (expanded from 2.0 GB)
-  static const int trialLimitBytes = 50 * 1024 * 1024 * 1024; // 53,687,091,200
-  static const double defaultTrialLimitGb = 50.0;
+  /// 2.0 GB Free Trial Limit for unactivated users (strict 2.0 GB default cap)
+  static const int trialLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
+  static const double defaultTrialLimitGb = 2.0;
 
-  /// 50.0 GB Hard Processing Ceiling during active file slimming
-  static const int trialHardLimitBytes = 50 * 1024 * 1024 * 1024; // 53,687,091,200
-  static const double defaultTrialHardLimitGb = 50.0;
+  /// 2.0 GB Hard Processing Ceiling fallback during active file slimming
+  static const int trialHardLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
+  static const double defaultTrialHardLimitGb = 2.0;
 
   int _trialLimitBytes = trialLimitBytes;
   int _totalBytesSlimmed = 0;
@@ -78,10 +78,10 @@ class QuotaService extends ChangeNotifier {
   bool get isTrialMode => !_isLicenseActivated;
   bool get isTrialExceeded => isTrialMode && (_totalBytesSlimmed >= _trialLimitBytes);
 
-  /// Checks if trial processing has surpassed the 2.5 GB hard live processing ceiling
+  /// Checks if trial processing has surpassed the live processing ceiling
   bool isHardLimitExceeded({int additionalBytes = 0}) {
     if (!isTrialMode) return false;
-    return (_totalBytesSlimmed + additionalBytes) >= trialHardLimitBytes;
+    return (_totalBytesSlimmed + additionalBytes) >= _trialLimitBytes;
   }
   bool get isLicenseExpired => _isLicenseActivated && _licenseExpiresAt != null && DateTime.now().isAfter(_licenseExpiresAt!);
   String? get licenseKey => _licenseKey;
@@ -178,23 +178,63 @@ class QuotaService extends ChangeNotifier {
     _firstSlimmedAt = kcFirst ?? localFirst;
     _lastSlimmedAt = kcLast ?? localLast;
 
-    // Sync with hardware client document in Firestore
+    // 0. Fetch global trial policy and remote pricing from Firestore
+    await fetchGlobalPricingPolicy();
+
+    // 1. Sync with hardware client document in Firestore
     if (clientId.isNotEmpty) {
       await syncWithFirestore(clientId: clientId);
     }
 
-    // Load license state strictly from current Google user, not machine hardware
+    // 2. Load license state strictly from current Google user, not machine hardware
     final user = AuthService().currentUser;
     if (user != null && user.isValid) {
       await syncWithGoogleAccount(user: user, clientId: clientId);
     } else {
       _isLicenseActivated = false;
       _licenseKey = null;
-      _quotaLimitBytes = trialLimitBytes;
+      _quotaLimitBytes = _trialLimitBytes;
     }
 
     _isInitialized = true;
     notifyListeners();
+  }
+
+  /// Sets trial limit dynamically (e.g. for testing or remote configuration)
+  void setTrialLimitBytes(int bytes) {
+    if (bytes > 0) {
+      _trialLimitBytes = bytes;
+      notifyListeners();
+    }
+  }
+
+  /// Fetches global trial limit policy from Firestore global_pricing
+  Future<void> fetchGlobalPricingPolicy() async {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 5);
+      final uri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/apps/$appId/clients/global_pricing?key=$apiKey',
+      );
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      if (resp.statusCode == 200) {
+        final body = await utf8.decoder.bind(resp).join();
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+
+        final remoteTrial = fields['default_trial_limit_bytes'] ?? fields['trial_limit_bytes'];
+        if (remoteTrial != null) {
+          final parsed = int.tryParse(remoteTrial['integerValue']?.toString() ?? '');
+          if (parsed != null && parsed > 0) {
+            _trialLimitBytes = parsed;
+          }
+        }
+      }
+      client.close();
+    } catch (e) {
+      debugPrint('Error fetching global pricing policy: $e');
+    }
   }
 
   /// Activates a verified license key and unlocks 10 TB annual quota
@@ -586,6 +626,15 @@ class QuotaService extends ChangeNotifier {
             : <String>[];
         _maxSeats = 1;
         _accountInvoiceId = fields['invoice_id']?['stringValue'];
+
+        // Reconcile trial limit if overridden for this user from Firestore
+        final remoteTrial = fields['trial_limit_bytes'];
+        if (remoteTrial != null) {
+          final parsedTrial = int.tryParse(remoteTrial['integerValue']?.toString() ?? '');
+          if (parsedTrial != null && parsedTrial > 0) {
+            _trialLimitBytes = parsedTrial;
+          }
+        }
 
         final isDeviceRegistered = clientId.isNotEmpty && _activeSeats.contains(clientId);
         _isSeatLimitReached = !isDeviceRegistered && _activeSeats.isNotEmpty;
