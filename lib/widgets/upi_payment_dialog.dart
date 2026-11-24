@@ -33,39 +33,58 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
 
   // Default NeerTech Cashfree Details (dynamically synced from license server)
   static const String defaultPayeeName = 'NeerTech Technologies';
-  static const String defaultLicenseAmount = '9999';
+  static const String defaultLicenseAmount = '11999';
   static const String defaultOriginalAmount = '19999';
+  static const String defaultLicense20tbAmount = '14999';
+  static const String defaultLicense20tbOriginalAmount = '29999';
   static const String defaultSupportPhone = '+91 74588 29500';
-  static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/links?code=Nb7rbehn28jg_AAAAAAAWrHQ';
+  static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/forms/slim4k';
 
+  String _selectedPlan = '10tb'; // '10tb' or '20tb'
   String _payeeName = defaultPayeeName;
   String _licenseAmount = defaultLicenseAmount;
   String _originalAmount = defaultOriginalAmount;
+  String _license20tbAmount = defaultLicense20tbAmount;
+  String _license20tbOriginalAmount = defaultLicense20tbOriginalAmount;
   String _supportPhone = defaultSupportPhone;
   String _cashfreePaymentUrl = defaultCashfreePaymentUrl;
 
   String get _clientId => _activationService.currentActivation?.clientId ?? '';
 
-  String get _formattedAmount {
-    final numVal = int.tryParse(_licenseAmount);
+  bool get _is20TbPlan => _selectedPlan == '20tb';
+  String get _currentAmount => _is20TbPlan ? _license20tbAmount : _licenseAmount;
+  String get _currentOriginalAmount => _is20TbPlan ? _license20tbOriginalAmount : _originalAmount;
+  String get _currentPlanQuota => _is20TbPlan ? '20.0 TB' : '10.0 TB';
+  String get _currentPlanValidity => _is20TbPlan ? '2 Years' : '1 Year';
+
+  String _formatAmount(String val) {
+    final numVal = int.tryParse(val);
     if (numVal != null) {
       return numVal.toString().replaceAllMapped(
         RegExp(r'(\d+?)(?=(\d\d)+(\d)(?!\d))'),
         (Match m) => '${m[1]},',
       );
     }
-    return _licenseAmount;
+    return val;
   }
 
-  String get _formattedOriginalAmount {
-    final numVal = int.tryParse(_originalAmount);
-    if (numVal != null) {
-      return numVal.toString().replaceAllMapped(
-        RegExp(r'(\d+?)(?=(\d\d)+(\d)(?!\d))'),
-        (Match m) => '${m[1]},',
-      );
+  String get _formattedAmount => _formatAmount(_currentAmount);
+  String get _formattedOriginalAmount => _formatAmount(_currentOriginalAmount);
+
+  String get _currentPaymentUrl {
+    var targetUrl = _cashfreePaymentUrl;
+    final separator = targetUrl.contains('?') ? '&' : '?';
+    final queryParams = <String>[];
+    final user = AuthService().currentUser;
+    if (user != null && user.email.isNotEmpty) {
+      queryParams.add('customer_email=${Uri.encodeComponent(user.email)}');
     }
-    return _originalAmount;
+    if (_clientId.isNotEmpty) {
+      queryParams.add('customer_id=${Uri.encodeComponent(_clientId)}');
+    }
+    queryParams.add('plan=$_selectedPlan');
+    queryParams.add('amount=$_currentAmount');
+    return '$targetUrl$separator${queryParams.join('&')}';
   }
 
   @override
@@ -101,6 +120,8 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
 
         final amt = fields['license_amount']?['stringValue'] ?? fields['license_amount']?['integerValue']?.toString();
         final origAmt = fields['original_amount']?['stringValue'] ?? fields['original_amount']?['integerValue']?.toString();
+        final amt20 = fields['license_20tb_amount']?['stringValue'] ?? fields['license_20tb_amount']?['integerValue']?.toString();
+        final origAmt20 = fields['license_20tb_original_amount']?['stringValue'] ?? fields['license_20tb_original_amount']?['integerValue']?.toString();
         final cfUrl = fields['cashfree_payment_url']?['stringValue'];
         final payee = fields['payee_name']?['stringValue'];
         final phone = fields['support_phone']?['stringValue'];
@@ -111,12 +132,18 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
             if (amt != null && amt.isNotEmpty && amt != '9') {
               _licenseAmount = amt;
             } else if (amt == '9') {
-              _licenseAmount = '9999';
+              _licenseAmount = '11999';
             }
             if (origAmt != null && origAmt.isNotEmpty) {
               _originalAmount = origAmt;
             } else {
               _originalAmount = '19999';
+            }
+            if (amt20 != null && amt20.isNotEmpty) {
+              _license20tbAmount = amt20;
+            }
+            if (origAmt20 != null && origAmt20.isNotEmpty) {
+              _license20tbOriginalAmount = origAmt20;
             }
             if (cfUrl != null && cfUrl.isNotEmpty) _cashfreePaymentUrl = cfUrl;
             if (payee != null && payee.isNotEmpty) _payeeName = payee;
@@ -261,8 +288,10 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
             if (paidAt != null && DateTime.now().difference(paidAt).inMinutes < 20) {
               activated = true;
               activatedLicenseId = paidLicenseId;
-              quotaBytes = QuotaService.defaultQuotaBytes;
-              validityDays = 365;
+              final amtVal = int.tryParse(latestFields['amount']?['stringValue'] ?? latestFields['amount']?['integerValue']?.toString() ?? '') ?? 0;
+              final is20Tb = amtVal >= 14000;
+              quotaBytes = is20Tb ? 21990232555520 : QuotaService.defaultQuotaBytes;
+              validityDays = is20Tb ? 730 : 365;
 
               // Immediately write activation back to this Google account in Firestore
               if (currentUser != null && currentUser.email.isNotEmpty) {
@@ -277,9 +306,9 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                   'fields': {
                     'is_license_activated': {'booleanValue': true},
                     'payment_status': {'stringValue': 'PAID'},
-                    'quota_limit_bytes': {'integerValue': QuotaService.defaultQuotaBytes.toString()},
-                    'quota_limit_tb': {'doubleValue': 10.0},
-                    'validity_days': {'integerValue': '365'},
+                    'quota_limit_bytes': {'integerValue': quotaBytes.toString()},
+                    'quota_limit_tb': {'doubleValue': is20Tb ? 20.0 : 10.0},
+                    'validity_days': {'integerValue': validityDays.toString()},
                     'max_active_devices': {'integerValue': '1'},
                     'internal_license_id': {'stringValue': activatedLicenseId},
                   }
@@ -295,7 +324,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
       if (activated) {
         _pollingTimer?.cancel();
 
-        // Unlock 10 TB quota locally on this machine
+        // Unlock quota locally on this machine
         await _quotaService.activateLicense(
           licenseKey: activatedLicenseId,
           validityDays: validityDays,
@@ -307,11 +336,12 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
           await _quotaService.syncWithGoogleAccount(user: currentUser, clientId: _clientId);
         }
 
+        final quotaTbDisplay = (quotaBytes / (1024 * 1024 * 1024 * 1024)).toStringAsFixed(0);
         if (mounted) {
           setState(() {
             _isActivated = true;
             _isChecking = false;
-            _statusFeedback = '🎉 Payment Confirmed! 10 TB Studio License is now ACTIVE.';
+            _statusFeedback = '🎉 Payment Confirmed! $quotaTbDisplay TB Studio License is now ACTIVE.';
           });
         }
 
@@ -343,19 +373,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   }
 
   void _openCashfreeCheckout() {
-    final user = AuthService().currentUser;
-    var targetUrl = _cashfreePaymentUrl;
-    final separator = targetUrl.contains('?') ? '&' : '?';
-    final queryParams = <String>[];
-    if (user != null && user.email.isNotEmpty) {
-      queryParams.add('customer_email=${Uri.encodeComponent(user.email)}');
-    }
-    if (_clientId.isNotEmpty) {
-      queryParams.add('customer_id=${Uri.encodeComponent(_clientId)}');
-    }
-    if (queryParams.isNotEmpty) {
-      targetUrl = '$targetUrl$separator${queryParams.join('&')}';
-    }
+    final targetUrl = _currentPaymentUrl;
 
     Clipboard.setData(ClipboardData(text: targetUrl));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -431,7 +449,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                         const SizedBox(height: 2),
                         Text(
                           _isActivated
-                              ? 'Your 10.0 TB Annual 4K License is now permanently bound to this computer.'
+                              ? 'Your $_currentPlanQuota Studio 4K License is now permanently bound to this computer.'
                               : 'Secure Online Payment via Cashfree Gateway (Auto-Activates Without Key)',
                           style: const TextStyle(color: Colors.white60, fontSize: 11),
                         ),
@@ -448,6 +466,140 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
               const SizedBox(height: 18),
               const Divider(color: Color(0xFF21262D), height: 1),
               const SizedBox(height: 18),
+
+              // Plan Selector: 10 TB (1 Year) vs 20 TB (2 Years)
+              if (!_isActivated) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF161B22),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: Row(
+                    children: [
+                      // Option 1: 10 TB Plan
+                      Expanded(
+                        child: InkWell(
+                          onTap: () {
+                            if (_selectedPlan != '10tb') {
+                              setState(() => _selectedPlan = '10tb');
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _selectedPlan == '10tb'
+                                  ? const Color(0xFF00E5FF).withOpacity(0.18)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _selectedPlan == '10tb'
+                                    ? const Color(0xFF00E5FF)
+                                    : Colors.transparent,
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  '10 TB Studio (1 Year)',
+                                  style: TextStyle(
+                                    color: _selectedPlan == '10tb' ? Colors.white : Colors.white60,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '₹${_formatAmount(_licenseAmount)}',
+                                  style: TextStyle(
+                                    color: _selectedPlan == '10tb' ? const Color(0xFF00E676) : Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      // Option 2: 20 TB Plan
+                      Expanded(
+                        child: InkWell(
+                          onTap: () {
+                            if (_selectedPlan != '20tb') {
+                              setState(() => _selectedPlan = '20tb');
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _selectedPlan == '20tb'
+                                  ? const Color(0xFF00E5FF).withOpacity(0.18)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _selectedPlan == '20tb'
+                                    ? const Color(0xFF00E5FF)
+                                    : Colors.transparent,
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      '20 TB Studio (2 Years)',
+                                      style: TextStyle(
+                                        color: _selectedPlan == '20tb' ? Colors.white : Colors.white60,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFD700).withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: const Color(0xFFFFD700), width: 0.8),
+                                      ),
+                                      child: const Text(
+                                        'BEST VALUE',
+                                        style: TextStyle(
+                                          color: Color(0xFFFFD700),
+                                          fontSize: 7.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '₹${_formatAmount(_license20tbAmount)}',
+                                  style: TextStyle(
+                                    color: _selectedPlan == '20tb' ? const Color(0xFF00E676) : Colors.white70,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // Two Column Body: Left = Cashfree QR Code, Right = Cashfree Actions & Live Radar
               Row(
@@ -493,7 +645,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: QrImageView(
-                              data: _cashfreePaymentUrl,
+                              data: _currentPaymentUrl,
                               version: QrVersions.auto,
                               size: 190.0,
                               backgroundColor: Colors.white,
@@ -530,9 +682,9 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                     ),
                                   ),
                                   const SizedBox(width: 4),
-                                  const Text(
-                                    '/ Year',
-                                    style: TextStyle(
+                                  Text(
+                                    _is20TbPlan ? '/ 2 Years' : '/ Year',
+                                    style: const TextStyle(
                                       color: Colors.white70,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -548,9 +700,11 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: const Color(0xFF00E676).withOpacity(0.3)),
                                 ),
-                                child: const Text(
-                                  '50% OFF • LIMITED STUDIO OFFER',
-                                  style: TextStyle(
+                                child: Text(
+                                  _is20TbPlan
+                                      ? '50% OFF • 2 YEARS EXTENDED VALIDITY'
+                                      : '40% OFF • LIMITED STUDIO OFFER',
+                                  style: const TextStyle(
                                     color: Color(0xFF00E676),
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.bold,
@@ -560,9 +714,9 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                               ),
                             ],
                           ),
-                          const Text(
-                            'Full 10.0 TB 4K Video Slimming Quota',
-                            style: TextStyle(color: Colors.white54, fontSize: 10.5),
+                          Text(
+                            'Full $_currentPlanQuota 4K Video Slimming Quota',
+                            style: const TextStyle(color: Colors.white54, fontSize: 10.5),
                           ),
                           const SizedBox(height: 8),
 
@@ -633,7 +787,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                               const SizedBox(height: 8),
                               Text(
                                 _isActivated
-                                    ? 'Your payment was verified. 10 TB Annual License has been automatically bound to this machine.'
+                                    ? 'Your payment was verified. $_currentPlanQuota ($_currentPlanValidity) Studio License has been automatically bound to this machine.'
                                     : 'Once you complete payment via Cashfree in your browser or on phone, this screen automatically unlocks itself. No key required!',
                                 style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
                               ),
@@ -739,7 +893,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                     ),
                                     onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: _cashfreePaymentUrl));
+                                      Clipboard.setData(ClipboardData(text: _currentPaymentUrl));
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
                                           content: Text('Cashfree Payment Link copied!'),
