@@ -41,6 +41,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   static const String defaultLicense20tbOriginalAmount = '29999';
   static const String defaultSupportPhone = '+91 74588 29500';
   static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/forms/slim4k';
+  static const String defaultCashfreeOfferUrl = 'https://payments.cashfree.com/forms/slim4k-offer';
 
   String _selectedPlan = '10tb'; // '10tb' or '20tb'
   String _payeeName = defaultPayeeName;
@@ -52,6 +53,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   String _license20tbOriginalAmount = defaultLicense20tbOriginalAmount;
   String _supportPhone = defaultSupportPhone;
   String _cashfreePaymentUrl = defaultCashfreePaymentUrl;
+  String _cashfreeOfferUrl = defaultCashfreeOfferUrl;
 
   // Dynamic Unique Coupon State
   String _generatedCouponCode = '';
@@ -92,7 +94,8 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   String get _formattedOriginalAmount => _formatAmount(_currentOriginalAmount);
 
   String get _currentPaymentUrl {
-    var targetUrl = _cashfreePaymentUrl;
+    // When coupon is successfully applied, route via offers payment form, else default form
+    var targetUrl = _isCouponApplied ? _cashfreeOfferUrl : _cashfreePaymentUrl;
     final separator = targetUrl.contains('?') ? '&' : '?';
     final queryParams = <String>[];
     final user = AuthService().currentUser;
@@ -238,6 +241,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
         final amt20Disc = fields['license_20tb_amount_discounted']?['stringValue'] ?? fields['license_20tb_amount_discounted']?['integerValue']?.toString();
         final origAmt20 = fields['license_20tb_original_amount']?['stringValue'] ?? fields['license_20tb_original_amount']?['integerValue']?.toString();
         final cfUrl = fields['cashfree_payment_url']?['stringValue'];
+        final cfOfferUrl = fields['cashfree_offer_url']?['stringValue'];
         final payee = fields['payee_name']?['stringValue'];
         final phone = fields['support_phone']?['stringValue'];
 
@@ -250,6 +254,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
             if (amt20Disc != null && amt20Disc.isNotEmpty) _discountedLicense20tbAmount = amt20Disc;
             if (origAmt20 != null && origAmt20.isNotEmpty) _license20tbOriginalAmount = origAmt20;
             if (cfUrl != null && cfUrl.isNotEmpty) _cashfreePaymentUrl = cfUrl;
+            if (cfOfferUrl != null && cfOfferUrl.isNotEmpty) _cashfreeOfferUrl = cfOfferUrl;
             if (payee != null && payee.isNotEmpty) _payeeName = payee;
             if (phone != null && phone.isNotEmpty) _supportPhone = phone;
           });
@@ -271,6 +276,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
           final clientAmt = clientFields['license_amount']?['stringValue'] ?? clientFields['license_amount']?['integerValue']?.toString();
           final clientOrigAmt = clientFields['original_amount']?['stringValue'] ?? clientFields['original_amount']?['integerValue']?.toString();
           final clientCfUrl = clientFields['cashfree_payment_url']?['stringValue'];
+          final clientCfOfferUrl = clientFields['cashfree_offer_url']?['stringValue'];
 
           if (mounted) {
             setState(() {
@@ -281,6 +287,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                 _originalAmount = clientOrigAmt;
               }
               if (clientCfUrl != null && clientCfUrl.isNotEmpty) _cashfreePaymentUrl = clientCfUrl;
+              if (clientCfOfferUrl != null && clientCfOfferUrl.isNotEmpty) _cashfreeOfferUrl = clientCfOfferUrl;
             });
           }
         }

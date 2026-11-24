@@ -44,28 +44,28 @@ void main() {
       expect((tenTbBytes - 1) >= tenTbBytes, isFalse);
     });
 
-    test('Strict 2.0 GB Default Trial Limit & Dynamic Remote Ceiling', () {
-      expect(QuotaService.trialLimitBytes, 2 * 1024 * 1024 * 1024);
-      expect(QuotaService.defaultTrialLimitGb, 2.0);
+    test('Strict 50.0 GB Trial Quota & Dynamic Remote Ceiling from Firestore', () {
+      expect(QuotaService.trialLimitBytes, 50 * 1024 * 1024 * 1024);
+      expect(QuotaService.defaultTrialLimitGb, 50.0);
 
-      expect(QuotaService.trialHardLimitBytes, 2 * 1024 * 1024 * 1024);
-      expect(QuotaService.defaultTrialHardLimitGb, 2.0);
+      expect(QuotaService.trialHardLimitBytes, 50 * 1024 * 1024 * 1024);
+      expect(QuotaService.defaultTrialHardLimitGb, 50.0);
 
       final quota = QuotaService();
-      // Initially 0 bytes processed against default 2.0 GB:
-      expect(quota.isHardLimitExceeded(additionalBytes: 1 * 1024 * 1024 * 1024), isFalse);
-      expect(quota.isHardLimitExceeded(additionalBytes: (2 * 1024 * 1024 * 1024) - 1), isFalse);
-
-      // Reaches or surpasses strict 2.0 GB:
-      expect(quota.isHardLimitExceeded(additionalBytes: 2 * 1024 * 1024 * 1024), isTrue);
-      expect(quota.isHardLimitExceeded(additionalBytes: 3 * 1024 * 1024 * 1024), isTrue);
-
-      // Dynamically override from Firestore (e.g. 50.0 GB for admin testing):
-      quota.setTrialLimitBytes(50 * 1024 * 1024 * 1024);
-      expect(quota.currentTrialLimitBytes, 50 * 1024 * 1024 * 1024);
-      expect(quota.trialLimitGb, 50.0);
+      // Initially 0 bytes processed against 50.0 GB:
       expect(quota.isHardLimitExceeded(additionalBytes: 25 * 1024 * 1024 * 1024), isFalse);
+      expect(quota.isHardLimitExceeded(additionalBytes: (50 * 1024 * 1024 * 1024) - 1), isFalse);
+
+      // Reaches or surpasses strict 50.0 GB:
       expect(quota.isHardLimitExceeded(additionalBytes: 50 * 1024 * 1024 * 1024), isTrue);
+      expect(quota.isHardLimitExceeded(additionalBytes: 55 * 1024 * 1024 * 1024), isTrue);
+
+      // Dynamically override from Firestore (e.g. 100.0 GB or custom limit):
+      quota.setTrialLimitBytes(100 * 1024 * 1024 * 1024);
+      expect(quota.currentTrialLimitBytes, 100 * 1024 * 1024 * 1024);
+      expect(quota.trialLimitGb, 100.0);
+      expect(quota.isHardLimitExceeded(additionalBytes: 75 * 1024 * 1024 * 1024), isFalse);
+      expect(quota.isHardLimitExceeded(additionalBytes: 100 * 1024 * 1024 * 1024), isTrue);
     });
 
     test('AppUpdateService version comparison logic', () {

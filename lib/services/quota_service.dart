@@ -32,13 +32,13 @@ class QuotaService extends ChangeNotifier {
   static const int defaultQuotaBytes = 10 * 1024 * 1024 * 1024 * 1024; // 10,995,116,277,760
   static const double defaultQuotaTb = 10.0;
 
-  /// 2.0 GB Free Trial Limit for unactivated users (strict 2.0 GB default cap)
-  static const int trialLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
-  static const double defaultTrialLimitGb = 2.0;
+  /// 50.0 GB Free Trial Limit for unactivated users (strict 50.0 GB default cap)
+  static const int trialLimitBytes = 50 * 1024 * 1024 * 1024; // 53,687,091,200
+  static const double defaultTrialLimitGb = 50.0;
 
-  /// 2.0 GB Hard Processing Ceiling fallback during active file slimming
-  static const int trialHardLimitBytes = 2 * 1024 * 1024 * 1024; // 2,147,483,648
-  static const double defaultTrialHardLimitGb = 2.0;
+  /// 50.0 GB Hard Processing Ceiling fallback during active file slimming
+  static const int trialHardLimitBytes = 50 * 1024 * 1024 * 1024; // 53,687,091,200
+  static const double defaultTrialHardLimitGb = 50.0;
 
   int _trialLimitBytes = trialLimitBytes;
   int _totalBytesSlimmed = 0;
@@ -107,7 +107,7 @@ class QuotaService extends ChangeNotifier {
     return (_totalBytesSlimmed / _quotaLimitBytes * 100.0).clamp(0.0, 100.0);
   }
 
-  /// Whether the quota has been reached (2 GB trial limit or 10 TB annual limit or expired)
+  /// Whether the quota has been reached (50 GB trial limit or 10/20 TB annual limit or expired)
   bool get isQuotaExceeded => isTrialExceeded || isLicenseExpired || (_isLicenseActivated && _totalBytesSlimmed >= _quotaLimitBytes);
 
   /// Formatted strings for display
@@ -229,7 +229,14 @@ class QuotaService extends ChangeNotifier {
           if (parsed != null && parsed > 0) {
             _trialLimitBytes = parsed;
           }
+        } else if (fields['trial_limit_gb'] != null) {
+          final gb = (fields['trial_limit_gb']?['doubleValue'] as num?)?.toDouble() ??
+              (fields['trial_limit_gb']?['integerValue'] as num?)?.toDouble();
+          if (gb != null && gb > 0) {
+            _trialLimitBytes = (gb * 1024 * 1024 * 1024).round();
+          }
         }
+        notifyListeners();
       }
       client.close();
     } catch (e) {
@@ -461,7 +468,7 @@ class QuotaService extends ChangeNotifier {
         await _saveLocalCache();
 
         // Reconcile trial limit if overridden from Firestore
-        final remoteTrial = fields['trial_limit_bytes'];
+        final remoteTrial = fields['trial_limit_bytes'] ?? fields['default_trial_limit_bytes'];
         if (remoteTrial != null) {
           final parsedTrial = int.tryParse(remoteTrial['integerValue']?.toString() ?? '');
           if (parsedTrial != null && parsedTrial > 0) {
@@ -628,7 +635,7 @@ class QuotaService extends ChangeNotifier {
         _accountInvoiceId = fields['invoice_id']?['stringValue'];
 
         // Reconcile trial limit if overridden for this user from Firestore
-        final remoteTrial = fields['trial_limit_bytes'];
+        final remoteTrial = fields['trial_limit_bytes'] ?? fields['default_trial_limit_bytes'];
         if (remoteTrial != null) {
           final parsedTrial = int.tryParse(remoteTrial['integerValue']?.toString() ?? '');
           if (parsedTrial != null && parsedTrial > 0) {
