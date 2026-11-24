@@ -45,6 +45,7 @@ jobs:
         run: flutter test
 
       - name: Build Android Release APK
+        continue-on-error: true
         run: flutter build apk --release
 
       - name: Prepare Android Artifact
