@@ -289,7 +289,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
               activated = true;
               activatedLicenseId = paidLicenseId;
               final amtVal = int.tryParse(latestFields['amount']?['stringValue'] ?? latestFields['amount']?['integerValue']?.toString() ?? '') ?? 0;
-              final is20Tb = amtVal >= 12500;
+              final is20Tb = amtVal >= 14990;
               quotaBytes = is20Tb ? 21990232555520 : QuotaService.defaultQuotaBytes;
               validityDays = is20Tb ? 730 : 365;
 
