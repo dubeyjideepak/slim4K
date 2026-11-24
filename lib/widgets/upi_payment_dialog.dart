@@ -34,8 +34,10 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   // Default NeerTech Cashfree Details (dynamically synced from license server)
   static const String defaultPayeeName = 'NeerTech Technologies';
   static const String defaultLicenseAmount = '11999';
+  static const String defaultDiscountedLicenseAmount = '9999';
   static const String defaultOriginalAmount = '19999';
-  static const String defaultLicense20tbAmount = '14999';
+  static const String defaultLicense20tbAmount = '16999';
+  static const String defaultDiscountedLicense20tbAmount = '14999';
   static const String defaultLicense20tbOriginalAmount = '29999';
   static const String defaultSupportPhone = '+91 74588 29500';
   static const String defaultCashfreePaymentUrl = 'https://payments.cashfree.com/forms/slim4k';
@@ -43,16 +45,34 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   String _selectedPlan = '10tb'; // '10tb' or '20tb'
   String _payeeName = defaultPayeeName;
   String _licenseAmount = defaultLicenseAmount;
+  String _discountedLicenseAmount = defaultDiscountedLicenseAmount;
   String _originalAmount = defaultOriginalAmount;
   String _license20tbAmount = defaultLicense20tbAmount;
+  String _discountedLicense20tbAmount = defaultDiscountedLicense20tbAmount;
   String _license20tbOriginalAmount = defaultLicense20tbOriginalAmount;
   String _supportPhone = defaultSupportPhone;
   String _cashfreePaymentUrl = defaultCashfreePaymentUrl;
 
+  // Dynamic Unique Coupon State
+  String _generatedCouponCode = '';
+  String _verifiedCouponCode = '';
+  bool _isCouponApplied = false;
+  bool _isVerifyingCoupon = false;
+  String? _couponFeedback;
+  final TextEditingController _couponController = TextEditingController();
+
   String get _clientId => _activationService.currentActivation?.clientId ?? '';
 
   bool get _is20TbPlan => _selectedPlan == '20tb';
-  String get _currentAmount => _is20TbPlan ? _license20tbAmount : _licenseAmount;
+
+  String get _currentAmount {
+    if (_is20TbPlan) {
+      return _isCouponApplied ? _discountedLicense20tbAmount : _license20tbAmount;
+    } else {
+      return _isCouponApplied ? _discountedLicenseAmount : _licenseAmount;
+    }
+  }
+
   String get _currentOriginalAmount => _is20TbPlan ? _license20tbOriginalAmount : _originalAmount;
   String get _currentPlanQuota => _is20TbPlan ? '20.0 TB' : '10.0 TB';
   String get _currentPlanValidity => _is20TbPlan ? '2 Years' : '1 Year';
@@ -84,12 +104,105 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
     }
     queryParams.add('plan=$_selectedPlan');
     queryParams.add('amount=$_currentAmount');
+    if (_isCouponApplied && _verifiedCouponCode.isNotEmpty) {
+      queryParams.add('coupon=${Uri.encodeComponent(_verifiedCouponCode)}');
+    }
     return '$targetUrl$separator${queryParams.join('&')}';
+  }
+
+  String _generateRandomCouponCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final rand = DateTime.now().microsecondsSinceEpoch;
+    final buffer = StringBuffer('SLIM-');
+    for (int i = 0; i < 4; i++) {
+      buffer.write(chars[(rand + i * 7) % chars.length]);
+    }
+    return buffer.toString();
+  }
+
+  Future<void> _registerCouponInFirestore(String code) async {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 6);
+      final uri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/coupon_$code?key=${QuotaService.apiKey}',
+      );
+      final req = await client.patchUrl(uri);
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode({
+        'fields': {
+          'code': {'stringValue': code},
+          'discount_amount': {'integerValue': '2000'},
+          'is_active': {'booleanValue': true},
+          'created_at': {'stringValue': DateTime.now().toIso8601String()},
+          'plan_10tb_price': {'integerValue': '9999'},
+          'plan_20tb_price': {'integerValue': '14999'},
+        }
+      }));
+      final resp = await req.close();
+      await resp.drain();
+      client.close();
+    } catch (e) {
+      debugPrint('Register coupon fallback: $e');
+    }
+  }
+
+  Future<void> _validateAndApplyCoupon(String code) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) return;
+
+    setState(() {
+      _isVerifyingCoupon = true;
+      _couponFeedback = 'Verifying coupon with Firestore...';
+    });
+
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 6);
+      final uri = Uri.parse(
+        'https://firestore.googleapis.com/v1/projects/${QuotaService.projectId}/databases/(default)/documents/apps/slim4k/clients/coupon_$cleanCode?key=${QuotaService.apiKey}',
+      );
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      if (resp.statusCode == 200) {
+        final body = await utf8.decoder.bind(resp).join();
+        final doc = jsonDecode(body) as Map<String, dynamic>;
+        final fields = doc['fields'] as Map<String, dynamic>? ?? {};
+        final isActive = fields['is_active']?['booleanValue'] == true;
+
+        if (isActive) {
+          if (mounted) {
+            setState(() {
+              _isCouponApplied = true;
+              _verifiedCouponCode = cleanCode;
+              _isVerifyingCoupon = false;
+              _couponFeedback = '🎉 Coupon $cleanCode verified with Firestore! ₹2,000 discount applied.';
+            });
+          }
+          client.close();
+          return;
+        }
+      }
+      client.close();
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _isCouponApplied = false;
+        _verifiedCouponCode = '';
+        _isVerifyingCoupon = false;
+        _couponFeedback = '❌ Invalid or expired coupon code. Standard pricing applies.';
+      });
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    // Generate new random coupon code on every launch/refresh and register in Firestore
+    _generatedCouponCode = _generateRandomCouponCode();
+    _registerCouponInFirestore(_generatedCouponCode);
+
     // Load dynamic pricing and payment configurations
     _loadDynamicPricingConfig();
 
@@ -119,8 +232,10 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
         final fields = doc['fields'] as Map<String, dynamic>? ?? {};
 
         final amt = fields['license_amount']?['stringValue'] ?? fields['license_amount']?['integerValue']?.toString();
+        final amtDisc = fields['license_amount_discounted']?['stringValue'] ?? fields['license_amount_discounted']?['integerValue']?.toString();
         final origAmt = fields['original_amount']?['stringValue'] ?? fields['original_amount']?['integerValue']?.toString();
         final amt20 = fields['license_20tb_amount']?['stringValue'] ?? fields['license_20tb_amount']?['integerValue']?.toString();
+        final amt20Disc = fields['license_20tb_amount_discounted']?['stringValue'] ?? fields['license_20tb_amount_discounted']?['integerValue']?.toString();
         final origAmt20 = fields['license_20tb_original_amount']?['stringValue'] ?? fields['license_20tb_original_amount']?['integerValue']?.toString();
         final cfUrl = fields['cashfree_payment_url']?['stringValue'];
         final payee = fields['payee_name']?['stringValue'];
@@ -128,23 +243,12 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
 
         if (mounted) {
           setState(() {
-            // Guard against legacy test price of '9'
-            if (amt != null && amt.isNotEmpty && amt != '9') {
-              _licenseAmount = amt;
-            } else if (amt == '9') {
-              _licenseAmount = '11999';
-            }
-            if (origAmt != null && origAmt.isNotEmpty) {
-              _originalAmount = origAmt;
-            } else {
-              _originalAmount = '19999';
-            }
-            if (amt20 != null && amt20.isNotEmpty) {
-              _license20tbAmount = amt20;
-            }
-            if (origAmt20 != null && origAmt20.isNotEmpty) {
-              _license20tbOriginalAmount = origAmt20;
-            }
+            if (amt != null && amt.isNotEmpty) _licenseAmount = amt;
+            if (amtDisc != null && amtDisc.isNotEmpty) _discountedLicenseAmount = amtDisc;
+            if (origAmt != null && origAmt.isNotEmpty) _originalAmount = origAmt;
+            if (amt20 != null && amt20.isNotEmpty) _license20tbAmount = amt20;
+            if (amt20Disc != null && amt20Disc.isNotEmpty) _discountedLicense20tbAmount = amt20Disc;
+            if (origAmt20 != null && origAmt20.isNotEmpty) _license20tbOriginalAmount = origAmt20;
             if (cfUrl != null && cfUrl.isNotEmpty) _cashfreePaymentUrl = cfUrl;
             if (payee != null && payee.isNotEmpty) _payeeName = payee;
             if (phone != null && phone.isNotEmpty) _supportPhone = phone;
@@ -191,6 +295,7 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _couponController.dispose();
     super.dispose();
   }
 
@@ -513,14 +618,38 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                   ),
                                 ),
                                 const SizedBox(height: 2),
-                                Text(
-                                  '₹${_formatAmount(_licenseAmount)}',
-                                  style: TextStyle(
-                                    color: _selectedPlan == '10tb' ? const Color(0xFF00E676) : Colors.white70,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
+                                if (_isCouponApplied)
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '₹${_formatAmount(_licenseAmount)}',
+                                        style: const TextStyle(
+                                          color: Colors.white38,
+                                          fontSize: 10.5,
+                                          decoration: TextDecoration.lineThrough,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '₹${_formatAmount(_discountedLicenseAmount)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF00E676),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Text(
+                                    '₹${_formatAmount(_licenseAmount)}',
+                                    style: TextStyle(
+                                      color: _selectedPlan == '10tb' ? const Color(0xFF00E676) : Colors.white70,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -583,19 +712,184 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                   ],
                                 ),
                                 const SizedBox(height: 2),
-                                Text(
-                                  '₹${_formatAmount(_license20tbAmount)}',
-                                  style: TextStyle(
-                                    color: _selectedPlan == '20tb' ? const Color(0xFF00E676) : Colors.white70,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
+                                if (_isCouponApplied)
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '₹${_formatAmount(_license20tbAmount)}',
+                                        style: const TextStyle(
+                                          color: Colors.white38,
+                                          fontSize: 10.5,
+                                          decoration: TextDecoration.lineThrough,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '₹${_formatAmount(_discountedLicense20tbAmount)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF00E676),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Text(
+                                    '₹${_formatAmount(_license20tbAmount)}',
+                                    style: TextStyle(
+                                      color: _selectedPlan == '20tb' ? const Color(0xFF00E676) : Colors.white70,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Live Generated Coupon Box with Firestore Validation
+              if (!_isActivated) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF161B22),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _isCouponApplied
+                          ? const Color(0xFF00E676).withOpacity(0.5)
+                          : const Color(0xFF00E5FF).withOpacity(0.3),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.card_giftcard_rounded, color: Color(0xFF00E5FF), size: 16),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'COUPON CODE: ',
+                                style: TextStyle(
+                                  color: Color(0xFF00E5FF),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SelectableText(
+                                _generatedCouponCode,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          InkWell(
+                            onTap: () {
+                              _couponController.text = _generatedCouponCode;
+                              _validateAndApplyCoupon(_generatedCouponCode);
+                            },
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF).withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF00E5FF)),
+                              ),
+                              child: const Text(
+                                'Apply ₹2k Off',
+                                style: TextStyle(
+                                  color: Color(0xFF00E5FF),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 34,
+                              child: TextField(
+                                controller: _couponController,
+                                textCapitalization: TextCapitalization.characters,
+                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                decoration: InputDecoration(
+                                  hintText: 'Enter coupon code',
+                                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 11),
+                                  filled: true,
+                                  fillColor: const Color(0xFF0D1117),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: const BorderSide(color: Color(0xFF00E5FF)),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 34,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF21262D),
+                                foregroundColor: Colors.white,
+                                side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                              ),
+                              onPressed: _isVerifyingCoupon
+                                  ? null
+                                  : () => _validateAndApplyCoupon(_couponController.text),
+                              child: _isVerifyingCoupon
+                                  ? const SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Verify', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_couponFeedback != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _couponFeedback!,
+                          style: TextStyle(
+                            color: _isCouponApplied ? const Color(0xFF00E676) : const Color(0xFFFF5252),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -701,9 +995,11 @@ class _UpiPaymentDialogState extends State<UpiPaymentDialog> {
                                   border: Border.all(color: const Color(0xFF00E676).withOpacity(0.3)),
                                 ),
                                 child: Text(
-                                  _is20TbPlan
-                                      ? '50% OFF • 2 YEARS EXTENDED VALIDITY'
-                                      : '40% OFF • LIMITED STUDIO OFFER',
+                                  _isCouponApplied
+                                      ? '🎉 ₹2,000 COUPON APPLIED'
+                                      : (_is20TbPlan
+                                          ? '2 YEARS EXTENDED VALIDITY'
+                                          : 'LIMITED STUDIO OFFER'),
                                   style: const TextStyle(
                                     color: Color(0xFF00E676),
                                     fontSize: 9.5,
