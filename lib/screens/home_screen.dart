@@ -890,10 +890,12 @@ class _HomeScreenState extends State<HomeScreen> {
           await Process.run('open', [pathToOpen]);
         }
       } else if (Platform.isWindows) {
+        final winPath = p.normalize(pathToOpen).replaceAll('/', '\\');
         if (exists) {
-          await Process.run('explorer.exe', ['/select,$pathToOpen']);
+          // Pass /select,"<path>" unquoted around /select, so Windows Explorer opens the exact folder & selects the file
+          await Process.run('explorer.exe /select,"$winPath"', [], runInShell: true);
         } else {
-          await Process.run('explorer.exe', [pathToOpen]);
+          await Process.run('explorer.exe', [winPath]);
         }
       } else if (Platform.isLinux) {
         await Process.run('xdg-open', [exists ? p.dirname(pathToOpen) : pathToOpen]);
